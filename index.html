@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全資產交易紀錄器 (修正版)</title>
+    <title>全資產交易紀錄器</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -50,14 +50,15 @@
     </div>
 
     <script>
-        // 改名為 config 以符合瀏覽器快取中的預期變數
-        const firebaseConfig = {
-    apiKey: "AIzaSyA7p0zjKK2FkrAUquvME7z9RDNPIXMB1dY",
-    authDomain: "new-mystoc.firebaseapp.com",
-    projectId: "new-mystoc",
-    storageBucket: "new-mystoc.firebasestorage.app",
-    messagingSenderId: "562255915934",
-    appId: "1:562255915934:web:b43f6db8554dcb325ac48f"};
+        // 變數名稱改為 config，確保與下方呼叫一致
+        const config = {
+            apiKey: "AIzaSyBhPHwGlEnLMa00pkzZkbyNrdRA4pMRNMs",
+            authDomain: "new-mystoc.firebaseapp.com",
+            projectId: "new-mystoc",
+            storageBucket: "new-mystoc.firebasestorage.app",
+            messagingSenderId: "562255915934",
+            appId: "1:562255915934:web:b43f6db8554dcb325ac48f"
+        };
 
         firebase.initializeApp(config);
         const db = firebase.firestore();
