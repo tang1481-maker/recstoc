@@ -51,14 +51,14 @@
 
     <script>
         // 變數名稱改為 config，確保與下方呼叫一致
-        const config = {
-            apiKey: "AIzaSyBhPHwGlEnLMa00pkzZkbyNrdRA4pMRNMs",
-            authDomain: "new-mystoc.firebaseapp.com",
-            projectId: "new-mystoc",
-            storageBucket: "new-mystoc.firebasestorage.app",
-            messagingSenderId: "562255915934",
-            appId: "1:562255915934:web:b43f6db8554dcb325ac48f"
-        };
+        const firebaseConfig = {
+  apiKey: "AIzaSyA7p0zjKK2FkrAUquvME7z9RDNPIXMB1dY",
+  authDomain: "new-mystoc.firebaseapp.com",
+  projectId: "new-mystoc",
+  storageBucket: "new-mystoc.firebasestorage.app",
+  messagingSenderId: "562255915934",
+  appId: "1:562255915934:web:b43f6db8554dcb325ac48f"
+};
 
         firebase.initializeApp(config);
         const db = firebase.firestore();
