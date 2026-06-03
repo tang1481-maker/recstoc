@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全資產交易紀錄器 (多重資產版)</title>
+    
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 FontAwesome 圖示 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- 引入 Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f9fafb; color: #1f2937; }
+        .card { background: white; border-radius: 0.75rem; box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); border: 1px solid #f3f4f6; }
+        input, select { border: 1px solid #d1d5db; border-radius: 0.5rem; padding: 0.5rem; width: 100%; outline: none; transition: all 0.2s; }
+        input:focus, select:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5); }
+        .btn-primary { background-color: #2563eb; color: white; padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; cursor: pointer; font-weight: 500; transition: background-color 0.2s; }
+        .btn-primary:hover { background-color: #1d4ed8; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #f3f4f6; }
+        th { background-color: #f9fafb; font-weight: 600; color: #6b7280; font-size: 0.875rem; white-space: nowrap; }
+        tbody tr:hover { background-color: #f9fafb; }
+        
+        .hidden { display: none !important; }
+        .modal-overlay { background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
+        
+        /* 頁籤樣式 */
+        .tab-btn { padding: 0.75rem 1.25rem; font-weight: 500; color: #6b7280; border-bottom: 2px solid transparent; transition: all 0.2s; white-space: nowrap; }
+        .tab-btn:hover { color: #374151; border-color: #d1d5db; }
+        .tab-btn.active { color: #2563eb; border-color: #2563eb; background-color: #eff6ff; }
+    </style>
+</head>
+<body class="p-4 md:p-6">
+
+    <!-- 載入中畫面 -->
+    <div id="loading-screen" class="fixed inset-0 flex flex-col items-center justify-center z-50 bg-white/90">
+        <i class="fa-solid fa-cloud-arrow-up text-5xl text-blue-500 mb-4 animate-bounce"></i>
+        <h2 class="text-xl font-bold text-gray-700">連線至雲端帳本中...</h2>
+    </div>
+
+    <!-- 共用訊息/確認/填寫人/匯出彈窗 (隱藏於底部) -->
+    <div id="msg-modal" class="hidden fixed inset-0 flex items-center justify-center z-[60] modal-overlay"><div class="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl"><h3 class="text-lg font-bold mb-2" id="msg-title">提示</h3><p class="text-gray-600 mb-6" id="msg-content">內容</p><div class="flex justify-end"><button onclick="closeMsg()" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">確定</button></div></div></div>
+    <div id="confirm-modal" class="hidden fixed inset-0 flex items-center justify-center z-[60] modal-overlay"><div class="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl"><h3 class="text-lg font-bold mb-2 text-red-600 flex items-center"><i class="fa-solid fa-triangle-exclamation mr-2"></i><span id="confirm-title">確認操作</span></h3><p class="text-gray-600 mb-6" id="confirm-content">確定嗎？</p><div class="flex justify-end space-x-3"><button onclick="closeConfirm()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg">取消</button><button onclick="executeConfirm()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg">確定</button></div></div></div>
+    <div id="author-modal" class="hidden fixed inset-0 flex items-center justify-center z-50 modal-overlay"><div class="bg-white p-6 rounded-xl w-full max-w-sm shadow-2xl"><h3 class="text-lg font-bold mb-4 flex items-center"><i class="fa-solid fa-user-plus text-blue-600 mr-2"></i> 建立新填寫人</h3><div class="space-y-4"><div><label class="block text-sm font-medium mb-1">名稱/暱稱</label><input type="text" id="new-author-name"></div></div><div class="mt-6 flex justify-end space-x-3"><button onclick="closeAuthorModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg">取消</button><button onclick="saveNewAuthor()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg">建立標籤</button></div></div></div>
+    <div id="export-modal" class="hidden fixed inset-0 flex items-center justify-center z-50 modal-overlay"><div class="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl"><h3 class="text-lg font-bold mb-4 flex items-center"><i class="fa-solid fa-file-csv text-green-600 mr-2"></i> 匯出區間資料</h3><div class="space-y-4"><div><label class="block text-sm font-medium mb-1">開始日期</label><input type="date" id="export-start"></div><div><label class="block text-sm font-medium mb-1">結束日期</label><input type="date" id="export-end"></div></div><div class="mt-6 flex justify-end space-x-3"><button onclick="closeExportModal()" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg">取消</button><button onclick="executeExport()" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center"><i class="fa-solid fa-download mr-2"></i> 下載 CSV</button></div></div></div>
+
+    <!-- 主要應用程式內容 -->
+    <div class="max-w-[90rem] mx-auto space-y-6 hidden" id="app-content">
+        <!-- Header -->
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div class="flex items-center space-x-3">
+                <i class="fa-solid fa-layer-group text-3xl text-blue-600"></i>
+                <h1 class="text-2xl font-bold">全資產交易紀錄器 <span class="text-sm font-normal text-gray-500">(雲端版)</span></h1>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button onclick="openExportModal()" class="flex items-center space-x-2 text-sm text-green-700 bg-green-50 hover:bg-green-100 px-4 py-2 rounded-lg border border-green-200 transition-colors">
+                    <i class="fa-solid fa-file-export"></i><span class="font-medium">匯出紀錄</span>
+                </button>
+                <div class="flex items-center space-x-2 text-sm text-blue-600 bg-blue-50 px-3 py-2 rounded-lg border border-blue-200">
+                    <i class="fa-solid fa-users"></i><span class="font-medium">同步中</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 頂部總面板 (Global Dashboard) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="card p-5 flex items-center space-x-4 border-l-4 border-l-blue-500">
+                <div class="p-3 bg-blue-50 rounded-lg"><i class="fa-solid fa-sack-dollar text-xl text-blue-500"></i></div>
+                <div>
+                    <p class="text-sm text-gray-500 font-medium">總投入本金 (全資產)</p>
+                    <p class="text-xl font-bold" id="stat-principal">$0</p>
+                </div>
+            </div>
+            <div class="card p-5 flex items-center space-x-4 border-l-4 border-l-purple-500">
+                <div class="p-3 bg-purple-50 rounded-lg"><i class="fa-solid fa-money-bill-wave text-xl text-purple-500"></i></div>
+                <div>
+                    <p class="text-sm text-gray-500 font-medium">閒置現金餘額</p>
+                    <p class="text-xl font-bold" id="stat-cash">$0</p>
+                </div>
+            </div>
+            <div class="card p-5 flex items-center justify-between border-l-4 border-l-green-500 relative">
+                <div class="flex items-center space-x-4">
+                    <div class="p-3 bg-green-50 rounded-lg"><i class="fa-solid fa-chart-pie text-xl text-green-500"></i></div>
+                    <div>
+                        <p class="text-sm text-gray-500 font-medium">總獲利 (價差+配息)</p>
+                        <p class="text-xl font-bold" id="stat-profit" data-raw-value="0">$0</p>
+                    </div>
+                </div>
+                <button id="btn-reinvest" onclick="handleReinvest()" class="hidden bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors shadow-sm border border-green-200">
+                    <i class="fa-solid fa-rotate-right mr-1"></i>轉本金
+                </button>
+            </div>
+            <div class="card p-5 flex items-center space-x-4 border-l-4 border-l-yellow-500">
+                <div class="p-3 bg-yellow-50 rounded-lg"><i class="fa-solid fa-percent text-xl text-yellow-500"></i></div>
+                <div>
+                    <p class="text-sm text-gray-500 font-medium">總資產報酬率</p>
+                    <p class="text-xl font-bold" id="stat-roi">0.00%</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 內容區塊 (左側輸入，右側頁籤與報表) -->
+        <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
+            
+            <!-- 左側：統一輸入表單 -->
+            <div class="card p-6 xl:col-span-1 h-fit sticky top-6">
+                <h2 class="text-lg font-semibold mb-4 flex items-center">
+                    <i class="fa-solid fa-pen-to-square text-blue-500 mr-2"></i> 記錄新交易
+                </h2>
+                <form id="tx-form" class="space-y-4">
+                    <!-- 填寫人 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">填寫人</label>
+                        <div class="flex space-x-2">
+                            <select id="input-author-select" required class="flex-1">
+                                <option value="" disabled selected>請選擇...</option>
+                            </select>
+                            <button type="button" onclick="openAuthorModal()" class="bg-blue-50 hover:bg-blue-100 text-blue-600 px-3 rounded-lg border border-blue-200"><i class="fa-solid fa-plus"></i></button>
+                        </div>
+                    </div>
+                    
+                    <hr class="border-gray-100 my-2">
+
+                    <!-- 資產類別 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">資產類別</label>
+                        <select id="input-category" required class="border-blue-300 ring-1 ring-blue-100 focus:ring-blue-500 font-medium">
+                            <option value="cash">💵 現金帳戶 (出/入金)</option>
+                            <option value="stock" selected>📈 股票 / ETF</option>
+                            <option value="saving">🏦 儲蓄 (定存/活存)</option>
+                            <option value="gold">🪙 黃金 (存摺/實體)</option>
+                            <option value="fx">💱 外幣</option>
+                            <option value="fund">📊 共同基金</option>
+                            <option value="crypto">₿ 加密貨幣</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">日期</label>
+                            <input type="date" id="input-date" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">交易類型</label>
+                            <select id="input-type" required></select>
+                        </div>
+                    </div>
+
+                    <!-- 項目名稱 -->
+                    <div id="field-ticker" class="hidden">
+                        <label class="block text-sm font-medium text-gray-700 mb-1" id="label-ticker">項目名稱</label>
+                        <input type="text" id="input-ticker" placeholder="例如：2330, 台新定存, 實體金條">
+                    </div>
+
+                    <!-- 數量與單價 (供股票、黃金、基金、外幣、加密貨幣使用) -->
+                    <div id="field-shares-price" class="grid grid-cols-2 gap-4 hidden">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1" id="label-shares">數量</label>
+                            <input type="number" id="input-shares" min="0" step="any">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1" id="label-price">單價 / 匯率</label>
+                            <input type="number" id="input-price" min="0" step="any">
+                        </div>
+                    </div>
+
+                    <!-- 總金額 (供入金、儲蓄本金、領息使用) -->
+                    <div id="field-amount" class="hidden">
+                        <label class="block text-sm font-medium text-gray-700 mb-1" id="label-amount">總金額 (元)</label>
+                        <input type="number" id="input-amount" min="1" step="any">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1" id="label-fee">手續費 / 稅金</label>
+                        <input type="number" id="input-fee" min="0" step="any" placeholder="0">
+                    </div>
+
+                    <button type="submit" class="btn-primary w-full mt-2 py-3 text-lg shadow-md">
+                        <i class="fa-solid fa-cloud-arrow-up mr-2"></i> 上傳紀錄
+                    </button>
+                </form>
+            </div>
+
+            <!-- 右側：資料報表區 (分頁設計) -->
+            <div class="xl:col-span-3 flex flex-col space-y-4">
+                
+                <!-- 頁籤導覽列 -->
+                <div class="card overflow-hidden flex flex-nowrap overflow-x-auto border-b border-gray-200" id="tabs-container">
+                    <button class="tab-btn active" onclick="switchTab('all')"><i class="fa-solid fa-list-ul mr-2"></i>綜合流水帳</button>
+                    <button class="tab-btn" onclick="switchTab('stock')"><i class="fa-solid fa-arrow-trend-up mr-2"></i>股票</button>
+                    <button class="tab-btn" onclick="switchTab('saving')"><i class="fa-solid fa-piggy-bank mr-2"></i>儲蓄</button>
+                    <button class="tab-btn" onclick="switchTab('gold')"><i class="fa-solid fa-coins mr-2"></i>黃金</button>
+                    <button class="tab-btn" onclick="switchTab('fx')"><i class="fa-solid fa-money-bill-transfer mr-2"></i>外幣</button>
+                    <button class="tab-btn" onclick="switchTab('fund')"><i class="fa-solid fa-chart-pie mr-2"></i>基金</button>
+                    <button class="tab-btn" onclick="switchTab('crypto')"><i class="fa-brands fa-bitcoin mr-2"></i>加密貨幣</button>
+                </div>
+
+                <!-- 綜合流水帳 (Tab: all) -->
+                <div id="tab-all" class="card overflow-hidden flex-1 tab-content">
+                    <div class="px-6 py-4 bg-gray-50 flex items-center justify-between border-b border-gray-100">
+                        <h2 class="text-lg font-semibold"><i class="fa-solid fa-clock-rotate-left text-yellow-500 mr-2"></i>所有交易紀錄明細</h2>
+                    </div>
+                    <div class="overflow-x-auto max-h-[600px]">
+                        <table id="tx-table" class="min-w-[900px]">
+                            <thead class="sticky top-0 shadow-sm z-10">
+                                <tr>
+                                    <th>日期</th>
+                                    <th>填寫人</th>
+                                    <th>資產類別</th>
+                                    <th>項目名稱</th>
+                                    <th>動作</th>
+                                    <th class="text-right">數量/單價</th>
+                                    <th class="text-right">費用</th>
+                                    <th class="text-right">現金流增減</th>
+                                    <th class="text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody><!-- 動態插入 --></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 各資產庫存表容器 (由 JS 動態生成並控制顯示) -->
+                <div id="inventory-containers">
+                    <!-- 動態插入庫存表 -->
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 配置常數與設定
+        // ==========================================
+        const CATEGORY_MAP = {
+            'cash': { icon: 'fa-money-bill', label: '現金帳戶' },
+            'stock': { icon: 'fa-arrow-trend-up', label: '股票/ETF' },
+            'saving': { icon: 'fa-piggy-bank', label: '儲蓄' },
+            'gold': { icon: 'fa-coins', label: '黃金' },
+            'fx': { icon: 'fa-money-bill-transfer', label: '外幣' },
+            'fund': { icon: 'fa-chart-pie', label: '共同基金' },
+            'crypto': { icon: 'fa-bitcoin', label: '加密貨幣' }
+        };
+
+        const ACTION_MAP = {
+            'deposit': { label: '入金', style: 'background:#dbeafe; color:#1d4ed8' },
+            'withdraw': { label: '出金', style: 'background:#f3f4f6; color:#374151' },
+            'buy': { label: '買進/存入', style: 'background:#fee2e2; color:#b91c1c' },
+            'sell': { label: '賣出/提出', style: 'background:#dcfce7; color:#15803d' },
+            'dividend': { label: '領息/配息', style: 'background:#fef9c3; color:#a16207' },
+            'reinvest': { label: '獲利轉本金', style: 'background:#f3e8ff; color:#7e22ce' }
+        };
+
+        // ==========================================
+        // UI 自訂彈窗邏輯
+        // ==========================================
+        function showMsg(title, msg) { document.getElementById('msg-title').textContent = title; document.getElementById('msg-content').textContent = msg; document.getElementById('msg-modal').classList.remove('hidden'); }
+        function closeMsg() { document.getElementById('msg-modal').classList.add('hidden'); }
+        let currentConfirmCallback = null;
+        function showConfirm(title, msg, callback) { document.getElementById('confirm-title').textContent = title; document.getElementById('confirm-content').textContent = msg; currentConfirmCallback = callback; document.getElementById('confirm-modal').classList.remove('hidden'); }
+        function closeConfirm() { document.getElementById('confirm-modal').classList.add('hidden'); }
+        function executeConfirm() { if (currentConfirmCallback) currentConfirmCallback(); closeConfirm(); }
+
+        // =====================================================================
+        // ！！！ 第一步：請將你在 Firebase 申請到的 firebaseConfig 貼在下方 ！！！
+        // =====================================================================
+        const myFirebaseConfig = {
+            apiKey: "AIzaSyBhPHwGlEnLMa0OpkzZkbyNrdRA4pMRNMs",
+            authDomain: "mystockrec-3e74f.firebaseapp.com",
+            projectId: "mystockrec-3e74f",
+            storageBucket: "mystockrec-3e74f.firebasestorage.app",
+            messagingSenderId: "982906046106",
+            appId: "1:982906046106:web:01646d8f6c822acf768123"
+        };
+
+        const finalConfig = Object.keys(myFirebaseConfig).length > 0 ? myFirebaseConfig : JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        firebase.initializeApp(finalConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        let txCollectionPath = 'shared_transactions';
+        if (typeof __app_id !== 'undefined') txCollectionPath = `artifacts/${__app_id}/public/data/shared_transactions`;
+        
+        let globalTransactions = [];
+
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await auth.signInWithCustomToken(__initial_auth_token); } 
+                else { await auth.signInAnonymously(); }
+            } catch (error) { showMsg("連線錯誤", "無法連線至雲端資料庫，請檢查 Firebase 設定！"); }
+        }
+
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                db.collection(txCollectionPath).onSnapshot((snapshot) => {
+                    // 相容舊資料：若無 category 預設為 stock
+                    globalTransactions = snapshot.docs.map(doc => ({ id: doc.id, category: 'stock', ...doc.data() }));
+                    renderAuthors();
+                    updateUI(); 
+                    document.getElementById('loading-screen').classList.add('hidden');
+                    document.getElementById('app-content').classList.remove('hidden');
+                }, (error) => { console.error("監聽失敗:", error); });
+            }
+        });
+
+        initAuth();
+
+        // ==========================================
+        // 填寫人(作者)標籤邏輯
+        // ==========================================
+        function renderAuthors() {
+            const select = document.getElementById('input-author-select');
+            const currentSelection = select.value || localStorage.getItem('stock_tracker_last_author');
+            let localAuthors = JSON.parse(localStorage.getItem('stock_tracker_custom_authors') || '[]');
+            let dbAuthors = globalTransactions.map(tx => tx.author).filter(a => a);
+            let allAuthors = [...new Set([...localAuthors, ...dbAuthors])];
+            
+            select.innerHTML = '<option value="" disabled selected>請選擇...</option>';
+            allAuthors.forEach(author => {
+                const opt = document.createElement('option');
+                opt.value = author; opt.textContent = author; select.appendChild(opt);
+            });
+            if (currentSelection && allAuthors.includes(currentSelection)) select.value = currentSelection;
+        }
+        function openAuthorModal() { document.getElementById('new-author-name').value = ''; document.getElementById('author-modal').classList.remove('hidden'); setTimeout(() => document.getElementById('new-author-name').focus(), 100); }
+        function closeAuthorModal() { document.getElementById('author-modal').classList.add('hidden'); }
+        function saveNewAuthor() {
+            const newName = document.getElementById('new-author-name').value.trim();
+            if (!newName) { showMsg("提示", "請輸入有效的名字！"); return; }
+            let localAuthors = JSON.parse(localStorage.getItem('stock_tracker_custom_authors') || '[]');
+            if (!localAuthors.includes(newName)) { localAuthors.push(newName); localStorage.setItem('stock_tracker_custom_authors', JSON.stringify(localAuthors)); }
+            localStorage.setItem('stock_tracker_last_author', newName);
+            closeAuthorModal(); renderAuthors(); showMsg("成功", `已建立填寫人標籤：「${newName}」`);
+        }
+
+        // ==========================================
+        // 動態表單連動邏輯
+        // ==========================================
+        document.getElementById('input-date').valueAsDate = new Date();
+        const categorySelect = document.getElementById('input-category');
+        const typeSelect = document.getElementById('input-type');
+
+        function updateFormFields() {
+            const category = categorySelect.value;
+            const type = typeSelect.value;
+            
+            const fTicker = document.getElementById('field-ticker');
+            const fSharesPrice = document.getElementById('field-shares-price');
+            const fAmount = document.getElementById('field-amount');
+            
+            // 根據 Category 顯示不同的欄位與文案
+            if (category === 'cash') {
+                fTicker.classList.add('hidden');
+                fSharesPrice.classList.add('hidden');
+                fAmount.classList.remove('hidden');
+                document.getElementById('label-amount').textContent = '出/入金總額 (元)';
+            } else if (category === 'saving') {
+                fTicker.classList.remove('hidden');
+                document.getElementById('label-ticker').textContent = '銀行 / 帳戶名稱';
+                document.getElementById('input-ticker').placeholder = '例如：台新 Richart, 玉山定存';
+                
+                fSharesPrice.classList.add('hidden');
+                fAmount.classList.remove('hidden');
+                document.getElementById('label-amount').textContent = type === 'dividend' ? '利息金額 (元)' : '本金金額 (元)';
+            } else {
+                fTicker.classList.remove('hidden');
+                document.getElementById('label-ticker').textContent = '項目代號 / 名稱';
+                document.getElementById('input-ticker').placeholder = '例如：2330, 實體黃金, BTC';
+                
+                if (type === 'dividend') {
+                    fSharesPrice.classList.add('hidden');
+                    fAmount.classList.remove('hidden');
+                    document.getElementById('label-amount').textContent = '配息總額 (元)';
+                } else {
+                    fSharesPrice.classList.remove('hidden');
+                    fAmount.classList.add('hidden');
+                    document.getElementById('label-shares').textContent = category === 'fx' ? '外幣金額' : category === 'gold' ? '克數/盎司' : '數量';
+                    document.getElementById('label-price').textContent = category === 'fx' ? '成交匯率' : '成交單價';
+                }
+            }
+
+            // 設定 Required
+            document.getElementById('input-ticker').required = !fTicker.classList.contains('hidden');
+            document.getElementById('input-shares').required = !fSharesPrice.classList.contains('hidden');
+            document.getElementById('input-price').required = !fSharesPrice.classList.contains('hidden');
+            document.getElementById('input-amount').required = !fAmount.classList.contains('hidden');
+        }
+
+        categorySelect.addEventListener('change', (e) => {
+            const cat = e.target.value;
+            typeSelect.innerHTML = '';
+            
+            if (cat === 'cash') {
+                typeSelect.add(new Option('📥 存入本金 (入金)', 'deposit'));
+                typeSelect.add(new Option('📤 提款 (出金)', 'withdraw'));
+            } else if (cat === 'saving') {
+                typeSelect.add(new Option('💰 存入儲蓄 (買進)', 'buy'));
+                typeSelect.add(new Option('💸 解除儲蓄 (賣出)', 'sell'));
+                typeSelect.add(new Option('📈 領取利息', 'dividend'));
+            } else {
+                typeSelect.add(new Option('🔴 買進 / 申購', 'buy'));
+                typeSelect.add(new Option('🟢 賣出 / 贖回', 'sell'));
+                typeSelect.add(new Option('💰 領取配息', 'dividend'));
+            }
+            updateFormFields();
+        });
+        
+        typeSelect.addEventListener('change', updateFormFields);
+        categorySelect.dispatchEvent(new Event('change')); // 初始化
+
+        // ==========================================
+        // 頁籤切換邏輯
+        // ==========================================
+        function switchTab(tabId) {
+            // 更新按鈕樣式
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.currentTarget.classList.add('active');
+            
+            // 隱藏所有內容
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            
+            // 顯示對應內容
+            if(tabId === 'all') {
+                document.getElementById('tab-all').classList.remove('hidden');
+            } else {
+                const targetId = `tab-inv-${tabId}`;
+                const el = document.getElementById(targetId);
+                if(el) el.classList.remove('hidden');
+            }
+        }
+
+        // ==========================================
+        // 新增資料到雲端
+        // ==========================================
+        document.getElementById('tx-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const category = categorySelect.value;
+            const type = typeSelect.value;
+            const authorSelect = document.getElementById('input-author-select');
+            
+            if (!authorSelect.value) { showMsg("提示", "請先選擇或建立「填寫人」！"); return; }
+            localStorage.setItem('stock_tracker_last_author', authorSelect.value);
+
+            const newTx = {
+                date: document.getElementById('input-date').value,
+                author: authorSelect.value,
+                category: category,
+                type: type,
+                fee: parseFloat(document.getElementById('input-fee').value) || 0,
+                createdAt: Date.now()
+            };
+
+            if (category === 'cash') {
+                newTx.ticker = '現金帳戶';
+                newTx.amount = parseFloat(document.getElementById('input-amount').value) || 0;
+            } else if (category === 'saving') {
+                newTx.ticker = document.getElementById('input-ticker').value.trim();
+                newTx.amount = parseFloat(document.getElementById('input-amount').value) || 0;
+            } else {
+                newTx.ticker = document.getElementById('input-ticker').value.trim();
+                if (type === 'dividend') {
+                    newTx.amount = parseFloat(document.getElementById('input-amount').value) || 0;
+                } else {
+                    newTx.shares = parseFloat(document.getElementById('input-shares').value) || 0;
+                    newTx.price = parseFloat(document.getElementById('input-price').value) || 0;
+                }
+            }
+
+            try {
+                await db.collection(txCollectionPath).add(newTx);
+                document.getElementById('input-shares').value = '';
+                document.getElementById('input-price').value = '';
+                document.getElementById('input-amount').value = '';
+                document.getElementById('input-fee').value = '';
+                if(category === 'cash') document.getElementById('input-ticker').value = '';
+                showMsg("成功", "資料已成功上傳！");
+            } catch (error) { showMsg("失敗", "新增失敗，請檢查網路狀態。"); }
+        });
+
+        function deleteTx(id) {
+            showConfirm('刪除確認', '確定要刪除這筆雲端紀錄嗎？', async () => {
+                try { await db.collection(txCollectionPath).doc(id).delete(); } 
+                catch (error) { showMsg("失敗", "刪除失敗，請稍後再試。"); }
+            });
+        }
+
+        // ==========================================
+        // 匯出 CSV 邏輯 (加入 Category)
+        // ==========================================
+        function openExportModal() {
+            const now = new Date();
+            document.getElementById('export-start').value = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+            document.getElementById('export-end').value = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+            document.getElementById('export-modal').classList.remove('hidden');
+        }
+        function closeExportModal() { document.getElementById('export-modal').classList.add('hidden'); }
+        function executeExport() {
+            const start = document.getElementById('export-start').value;
+            const end = document.getElementById('export-end').value;
+            if(!start || !end) return showMsg("提示", "請選擇完整的日期區間！");
+            if(start > end) return showMsg("錯誤", "開始日期不能晚於結束日期！");
+
+            const filteredTx = globalTransactions.filter(tx => tx.date >= start && tx.date <= end).sort((a, b) => new Date(a.date) - new Date(b.date));
+            if(filteredTx.length === 0) return showMsg("提示", "此區間內無交易紀錄！");
+
+            let csvContent = "\uFEFF日期,填寫人,資產類別,項目,交易動作,數量,單價,手續費/稅金,總額變化\n";
+
+            filteredTx.forEach(tx => {
+                let cashEffect = 0;
+                if (tx.type === 'deposit') cashEffect = tx.amount - tx.fee;
+                if (tx.type === 'withdraw') cashEffect = -(tx.amount + tx.fee);
+                if (tx.type === 'dividend') cashEffect = tx.amount - tx.fee;
+                
+                // 儲存的 Buy/Sell 是用 amount，股票是用 shares*price
+                if (tx.type === 'buy') cashEffect = tx.category === 'saving' ? -(tx.amount + tx.fee) : -((tx.shares * tx.price) + tx.fee);
+                if (tx.type === 'sell') cashEffect = tx.category === 'saving' ? (tx.amount - tx.fee) : ((tx.shares * tx.price) - tx.fee);
+                if (tx.type === 'reinvest') cashEffect = 0; // 轉本金不影響現金流
+
+                const catLabel = CATEGORY_MAP[tx.category]?.label || '未知';
+                const actionLabel = ACTION_MAP[tx.type]?.label || tx.type;
+                const shares = tx.shares !== undefined ? tx.shares : '';
+                const price = tx.price !== undefined ? tx.price : '';
+
+                csvContent += `${tx.date},"${tx.author || ''}","${catLabel}","${tx.ticker}","${actionLabel}",${shares},${price},${tx.fee},${cashEffect}\n`;
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob); link.download = `全資產交易紀錄_${start}_至_${end}.csv`;
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+            closeExportModal();
+        }
+
+        // ==========================================
+        // 獲利轉本金邏輯
+        // ==========================================
+        function handleReinvest() {
+            const authorSelect = document.getElementById('input-author-select');
+            if (!authorSelect.value) {
+                showMsg("提示", "請先在左側表單選擇「填寫人」，系統才能記錄是誰執行了結算！");
+                return;
+            }
+            
+            const profitEl = document.getElementById('stat-profit');
+            const currentProfit = parseFloat(profitEl.dataset.rawValue || 0);
+            
+            if (currentProfit <= 0) return;
+
+            showConfirm('獲利轉本金', `確定將目前帳面獲利 $${Math.round(currentProfit).toLocaleString('zh-TW')} 全部轉入本金嗎？\n(此操作會讓總本金增加，獲利歸零，但不影響現金餘額)`, async () => {
+                const newTx = {
+                    date: new Date().toISOString().split('T')[0],
+                    author: authorSelect.value,
+                    category: 'cash',
+                    type: 'reinvest',
+                    amount: currentProfit,
+                    fee: 0,
+                    ticker: '系統結算 (獲利轉本金)',
+                    createdAt: Date.now()
+                };
+
+                try {
+                    await db.collection(txCollectionPath).add(newTx);
+                    showMsg("成功", "獲利已成功轉入本金！");
+                } catch (error) {
+                    showMsg("失敗", "結算失敗，請稍後再試。");
+                }
+            });
+        }
+
+        // ==========================================
+        // 核心計算與渲染畫面 (支援多重資產)
+        // ==========================================
+        function updateUI() {
+            let totalPrincipal = 0, cashBalance = 0, totalRealizedPnL = 0, totalDividends = 0, totalReinvested = 0;
+            
+            // 初始化二維庫存表: inventory[category][ticker]
+            let inventory = { 'stock': {}, 'saving': {}, 'gold': {}, 'fx': {}, 'fund': {}, 'crypto': {} };
+
+            const sortedTx = [...globalTransactions].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            sortedTx.forEach(tx => {
+                // 1. 全域資金池計算
+                if (tx.type === 'deposit') { totalPrincipal += tx.amount - tx.fee; cashBalance += tx.amount - tx.fee; } 
+                else if (tx.type === 'withdraw') { totalPrincipal -= (tx.amount + tx.fee); cashBalance -= (tx.amount + tx.fee); } 
+                else if (tx.type === 'dividend') { cashBalance += (tx.amount - tx.fee); totalDividends += (tx.amount - tx.fee); }
+                else if (tx.type === 'reinvest') { totalPrincipal += tx.amount; totalReinvested += tx.amount; }
+                else if (tx.type === 'buy') {
+                    const cost = tx.category === 'saving' ? tx.amount + tx.fee : (tx.shares * tx.price) + tx.fee;
+                    cashBalance -= cost;
+                } 
+                else if (tx.type === 'sell') {
+                    const proceeds = tx.category === 'saving' ? tx.amount - tx.fee : (tx.shares * tx.price) - tx.fee;
+                    cashBalance += proceeds;
+                }
+
+                // 2. 各資產庫存計算 (排除現金帳戶本身)
+                if (tx.category !== 'cash' && inventory[tx.category]) {
+                    if (!inventory[tx.category][tx.ticker]) {
+                        inventory[tx.category][tx.ticker] = { shares: 0, totalCost: 0, avgCost: 0, realizedPnL: 0, dividends: 0 };
+                    }
+                    const inv = inventory[tx.category][tx.ticker];
+
+                    if (tx.category === 'saving') {
+                        // 儲蓄邏輯: 直接增減本金
+                        if (tx.type === 'buy') { inv.shares += tx.amount; inv.totalCost += tx.amount; }
+                        else if (tx.type === 'sell') { inv.shares -= tx.amount; inv.totalCost -= tx.amount; }
+                        else if (tx.type === 'dividend') { inv.dividends += (tx.amount - tx.fee); }
+                        inv.avgCost = 1; // 儲蓄沒單價概念
+                    } else {
+                        // 股票/黃金/外幣/基金/幣圈邏輯: 移動平均成本法
+                        if (tx.type === 'buy') {
+                            inv.shares += tx.shares;
+                            inv.totalCost += (tx.shares * tx.price) + tx.fee;
+                            inv.avgCost = inv.totalCost / inv.shares;
+                        } else if (tx.type === 'sell') {
+                            const proceeds = (tx.shares * tx.price) - tx.fee;
+                            const cogs = tx.shares * inv.avgCost;
+                            inv.shares -= tx.shares;
+                            inv.totalCost -= cogs;
+                            inv.realizedPnL += (proceeds - cogs);
+                            totalRealizedPnL += (proceeds - cogs);
+                            if (inv.shares === 0 || Math.abs(inv.shares) < 0.000001) { inv.shares = 0; inv.totalCost = 0; inv.avgCost = 0; } // 處理浮點數
+                        } else if (tx.type === 'dividend') {
+                            inv.dividends += (tx.amount - tx.fee);
+                        }
+                    }
+                }
+            });
+
+            // 渲染頂部卡片
+            const formatMoney = num => Math.round(num).toLocaleString('zh-TW');
+            const formatDecimals = num => Number.isInteger(num) ? num.toString() : num.toFixed(4).replace(/\.?0+$/, ''); // 去除多餘的0
+            
+            const totalProfit = totalRealizedPnL + totalDividends - totalReinvested;
+            const roi = totalPrincipal > 0 ? ((totalProfit / totalPrincipal) * 100).toFixed(2) : 0;
+
+            document.getElementById('stat-principal').textContent = '$' + formatMoney(totalPrincipal);
+            document.getElementById('stat-cash').textContent = '$' + formatMoney(cashBalance);
+            
+            const profitEl = document.getElementById('stat-profit');
+            profitEl.dataset.rawValue = totalProfit;
+            profitEl.textContent = (totalProfit > 0 ? '+' : '') + '$' + formatMoney(totalProfit);
+            profitEl.className = `text-xl font-bold ${totalProfit > 0 ? 'text-red-500' : totalProfit < 0 ? 'text-green-500' : 'text-gray-800'}`;
+            
+            const btnReinvest = document.getElementById('btn-reinvest');
+            if (btnReinvest) {
+                if (totalProfit > 0) btnReinvest.classList.remove('hidden');
+                else btnReinvest.classList.add('hidden');
+            }
+
+            document.getElementById('stat-roi').textContent = (totalProfit > 0 ? '+' : '') + roi + '%';
+            document.getElementById('stat-roi').className = `text-xl font-bold ${totalProfit > 0 ? 'text-red-500' : totalProfit < 0 ? 'text-green-500' : 'text-gray-800'}`;
+
+            // 動態生成並渲染各資產的庫存表
+            const container = document.getElementById('inventory-containers');
+            container.innerHTML = '';
+            
+            ['stock', 'saving', 'gold', 'fx', 'fund', 'crypto'].forEach(cat => {
+                const catData = CATEGORY_MAP[cat];
+                const isSaving = cat === 'saving';
+                
+                // 建立該類別的 Wrapper
+                const wrapper = document.createElement('div');
+                wrapper.id = `tab-inv-${cat}`;
+                wrapper.className = 'card overflow-hidden tab-content hidden'; // 預設隱藏
+                
+                // 標題
+                let html = `<div class="px-6 py-4 bg-gray-50 flex items-center border-b border-gray-100">
+                                <i class="fa-solid ${catData.icon} text-blue-500 mr-2"></i><h2 class="text-lg font-semibold">${catData.label} 庫存總表</h2>
+                            </div>
+                            <div class="overflow-x-auto"><table class="min-w-[700px]"><thead><tr>
+                                <th>項目名稱</th>
+                                <th class="text-right">${isSaving ? '剩餘本金' : '持有數量'}</th>
+                                ${!isSaving ? '<th class="text-right">平均成本</th><th class="text-right">總投入成本</th>' : ''}
+                                <th class="text-right">累計利息/配息</th>
+                                ${!isSaving ? '<th class="text-right">已實現價差</th>' : ''}
+                            </tr></thead><tbody>`;
+                
+                const entries = Object.entries(inventory[cat]);
+                if(entries.length === 0) {
+                    html += `<tr><td colSpan="6" class="text-center py-8 text-gray-400">目前無 ${catData.label} 紀錄</td></tr>`;
+                } else {
+                    entries.forEach(([ticker, data]) => {
+                        html += `<tr><td class="font-medium text-gray-800">${ticker}</td>`;
+                        if(isSaving) {
+                            html += `<td class="text-right font-medium">$${formatMoney(data.shares)}</td>
+                                     <td class="text-right text-yellow-600">$${formatMoney(data.dividends)}</td>`;
+                        } else {
+                            html += `<td class="text-right">${formatDecimals(data.shares)}</td>
+                                     <td class="text-right text-gray-600">${formatDecimals(data.avgCost)}</td>
+                                     <td class="text-right text-gray-600">$${formatMoney(data.totalCost)}</td>
+                                     <td class="text-right text-yellow-600">$${formatMoney(data.dividends)}</td>
+                                     <td class="text-right font-bold ${data.realizedPnL > 0 ? 'text-red-500' : data.realizedPnL < 0 ? 'text-green-500' : 'text-gray-500'}">
+                                        $${formatMoney(data.realizedPnL)}
+                                     </td>`;
+                        }
+                        html += `</tr>`;
+                    });
+                }
+                html += `</tbody></table></div>`;
+                wrapper.innerHTML = html;
+                container.appendChild(wrapper);
+            });
+            
+            // 保持當前 active tab 的顯示狀態
+            const activeTabBtn = document.querySelector('.tab-btn.active');
+            if(activeTabBtn) activeTabBtn.click();
+
+            // 渲染綜合流水帳
+            const txTbody = document.querySelector('#tx-table tbody');
+            txTbody.innerHTML = '';
+            
+            const sortedDesc = [...globalTransactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+            if (sortedDesc.length === 0) {
+                txTbody.innerHTML = '<tr><td colSpan="9" class="text-center py-8 text-gray-400">尚無交易紀錄</td></tr>';
+            } else {
+                sortedDesc.forEach(tx => {
+                    let cashEffect = 0;
+                    if (tx.type === 'deposit') cashEffect = tx.amount - tx.fee;
+                    if (tx.type === 'withdraw') cashEffect = -(tx.amount + tx.fee);
+                    if (tx.type === 'dividend') cashEffect = tx.amount - tx.fee;
+                    if (tx.type === 'reinvest') cashEffect = 0;
+                    if (tx.type === 'buy') cashEffect = tx.category === 'saving' ? -(tx.amount + tx.fee) : -((tx.shares * tx.price) + tx.fee);
+                    if (tx.type === 'sell') cashEffect = tx.category === 'saving' ? (tx.amount - tx.fee) : ((tx.shares * tx.price) - tx.fee);
+
+                    const cfg = ACTION_MAP[tx.type] || { label: tx.type, style: 'background:#eee; color:#333' };
+                    const catLabel = CATEGORY_MAP[tx.category]?.label || '未知';
+                    const authorName = tx.author || '-'; 
+                    const isSaving = tx.category === 'saving';
+                    
+                    const details = tx.category === 'cash' || tx.type === 'dividend' || tx.type === 'reinvest' || isSaving ? '-' : `${formatDecimals(tx.shares)} @ ${formatDecimals(tx.price)}`;
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td class="text-sm text-gray-600">${tx.date}</td>
+                        <td class="text-sm font-medium text-gray-600"><i class="fa-regular fa-user mr-1 text-gray-400"></i>${authorName}</td>
+                        <td class="text-sm text-gray-500">${catLabel}</td>
+                        <td class="font-medium text-gray-800">${tx.ticker}</td>
+                        <td><span style="${cfg.style}" class="px-2 py-1 text-xs font-medium rounded-md">${cfg.label}</span></td>
+                        <td class="text-right text-sm text-gray-700">${details}</td>
+                        <td class="text-right text-sm text-gray-500">${tx.fee || '-'}</td>
+                        <td class="text-right font-bold ${cashEffect > 0 ? 'text-red-500' : cashEffect < 0 ? 'text-green-600' : 'text-gray-500'}">
+                            ${cashEffect > 0 ? '+' : ''}${formatMoney(cashEffect)}
+                        </td>
+                        <td class="text-center">
+                            <button onclick="deleteTx('${tx.id}')" class="text-gray-400 hover:text-red-500 transition-colors" title="刪除此紀錄"><i class="fa-solid fa-trash-can"></i></button>
+                        </td>
+                    `;
+                    txTbody.appendChild(tr);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
