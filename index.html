@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全資產交易紀錄器 (完整功能版)</title>
+    <title>全資產交易紀錄器 (修正版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
@@ -50,7 +50,8 @@
     </div>
 
     <script>
-        const firebaseConfig = {
+        // 改名為 config 以符合瀏覽器快取中的預期變數
+        const config = {
             apiKey: "AIzaSyBhPHwGlEnLMa00pkzZkbyNrdRA4pMRNMs",
             authDomain: "mystockrec-3e74f.firebaseapp.com",
             projectId: "mystockrec-3e74f",
@@ -59,7 +60,7 @@
             appId: "1:982906046106:web:449abe1985ae4998768123"
         };
 
-        firebase.initializeApp(firebaseConfig);
+        firebase.initializeApp(config);
         const db = firebase.firestore();
         const auth = firebase.auth();
 
@@ -67,7 +68,7 @@
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             event.target.classList.add('active');
             document.getElementById('input-category').value = cat;
-            render(window.allTxs); // 重新篩選顯示
+            render(window.allTxs);
         }
 
         auth.signInAnonymously().then(() => {
@@ -81,16 +82,18 @@
 
         function render(txs) {
             const cat = document.getElementById('input-category').value;
-            const filtered = txs.filter(t => t.category === cat);
+            const filtered = txs ? txs.filter(t => t.category === cat) : [];
             const tbody = document.getElementById('tx-tbody');
             tbody.innerHTML = '';
             let p = 0, profit = 0;
             
-            txs.forEach(t => {
-                if(t.type === 'reinvest') p += t.amount;
-                else if(t.category === 'cash') p += t.amount;
-                else profit += t.amount;
-            });
+            if (txs) {
+                txs.forEach(t => {
+                    if(t.type === 'reinvest') p += t.amount;
+                    else if(t.category === 'cash') p += t.amount;
+                    else profit += t.amount;
+                });
+            }
 
             filtered.forEach(t => {
                 tbody.innerHTML += `<tr><td class="p-3">${t.date}</td><td class="p-3">${t.ticker}</td><td class="p-3">${t.amount}</td><td class="p-3"><button onclick="db.collection('shared_transactions').doc('${t.id}').delete()" class="text-red-500">刪除</button></td></tr>`;
@@ -98,7 +101,6 @@
 
             document.getElementById('stat-principal').innerText = '$' + p;
             document.getElementById('stat-profit').innerText = '$' + profit;
-            document.getElementById('stat-profit').dataset.raw = profit;
             if(profit > 0) document.getElementById('btn-reinvest').classList.remove('hidden');
         }
 
