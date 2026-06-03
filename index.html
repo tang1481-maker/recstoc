@@ -3,42 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全資產交易紀錄器</title>
+    <title>全資產交易紀錄器 (完整功能版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background-color: #f9fafb; }
-        .card { background: white; border-radius: 0.75rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #f3f4f6; }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
+        .tab-btn.active { border-bottom: 2px solid #2563eb; color: #2563eb; font-weight: bold; }
     </style>
 </head>
-<body class="p-6">
+<body class="p-6 bg-gray-50">
     <div id="loading" class="fixed inset-0 flex items-center justify-center bg-white z-50">載入中...</div>
     
     <div id="app" class="max-w-7xl mx-auto space-y-6 hidden">
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div class="card p-4">本金: <span id="stat-principal" class="font-bold">$0</span></div>
-            <div class="card p-4">現金: <span id="stat-cash" class="font-bold">$0</span></div>
-            <div class="card p-4 flex justify-between">獲利: <span id="stat-profit" class="font-bold">$0</span> <button id="btn-reinvest" onclick="handleReinvest()" class="hidden text-xs bg-green-100 px-2 py-1 rounded">轉本金</button></div>
-            <div class="card p-4">報酬: <span id="stat-roi" class="font-bold">0%</span></div>
+            <div class="card p-4 bg-white shadow rounded-lg">本金: <span id="stat-principal" class="font-bold">$0</span></div>
+            <div class="card p-4 bg-white shadow rounded-lg">現金: <span id="stat-cash" class="font-bold">$0</span></div>
+            <div class="card p-4 bg-white shadow rounded-lg flex justify-between">獲利: <span id="stat-profit" class="font-bold">$0</span> 
+                <button id="btn-reinvest" onclick="handleReinvest()" class="hidden text-xs bg-green-100 px-2 py-1 rounded">轉本金</button>
+            </div>
+            <div class="card p-4 bg-white shadow rounded-lg">報酬: <span id="stat-roi" class="font-bold">0%</span></div>
         </div>
 
-        <div class="card p-6">
-            <form id="tx-form" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <select id="input-category" class="border p-2 rounded"><option value="stock">股票</option><option value="cash">現金</option><option value="saving">儲蓄</option><option value="gold">黃金</option><option value="fx">外幣</option><option value="fund">基金</option><option value="crypto">加密貨幣</option></select>
-                <input type="text" id="input-ticker" placeholder="名稱" class="border p-2 rounded">
+        <div class="flex space-x-2 border-b">
+            <div class="tab-btn active px-4 py-2 cursor-pointer" onclick="showTab('stock', event)">股票</div>
+            <div class="tab-btn px-4 py-2 cursor-pointer" onclick="showTab('crypto', event)">加密貨幣</div>
+            <div class="tab-btn px-4 py-2 cursor-pointer" onclick="showTab('fund', event)">基金</div>
+        </div>
+
+        <div class="card p-6 bg-white shadow rounded-lg">
+            <form id="tx-form" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <input type="hidden" id="input-category" value="stock">
+                <input type="text" id="input-ticker" placeholder="資產名稱" class="border p-2 rounded">
                 <input type="number" id="input-amount" placeholder="金額" class="border p-2 rounded">
-                <button type="submit" class="bg-blue-600 text-white p-2 rounded col-span-full">新增紀錄</button>
+                <input type="date" id="input-date" class="border p-2 rounded">
+                <button type="submit" class="bg-blue-600 text-white p-2 rounded">新增紀錄</button>
             </form>
-        </div>
-
-        <div class="card overflow-hidden">
-            <table class="w-full text-sm text-left">
-                <thead class="bg-gray-50 uppercase"><tr><th>日期</th><th>項目</th><th>金額</th><th>操作</th></tr></thead>
+            <table class="w-full text-left">
+                <thead><tr class="bg-gray-50"><th class="p-3">日期</th><th class="p-3">項目</th><th class="p-3">金額</th><th class="p-3">操作</th></tr></thead>
                 <tbody id="tx-tbody"></tbody>
             </table>
         </div>
@@ -46,52 +51,52 @@
 
     <script>
         const firebaseConfig = {
-  apiKey: "AIzaSyBhPHwGlEnlMa00pkzZkbyNrdRA4pMRNMs",
-  authDomain: "mystockrec-3e74f.firebaseapp.com",
-  projectId: "mystockrec-3e74f",
-  storageBucket: "mystockrec-3e74f.firebasestorage.app",
-  messagingSenderId: "982906046106",
-  appId: "1:982906046106:web:449abe1985ae4998768123"
-};
-        firebase.initializeApp(config);
+            apiKey: "AIzaSyBhPHwGlEnLMa00pkzZkbyNrdRA4pMRNMs",
+            authDomain: "mystockrec-3e74f.firebaseapp.com",
+            projectId: "mystockrec-3e74f",
+            storageBucket: "mystockrec-3e74f.firebasestorage.app",
+            messagingSenderId: "982906046106",
+            appId: "1:982906046106:web:449abe1985ae4998768123"
+        };
+
+        firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
         const auth = firebase.auth();
 
+        function showTab(cat, event) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('input-category').value = cat;
+            render(window.allTxs); // 重新篩選顯示
+        }
+
         auth.signInAnonymously().then(() => {
             db.collection('shared_transactions').onSnapshot(snap => {
-                const txs = snap.docs.map(d => ({id: d.id, ...d.data()}));
-                render(txs);
+                window.allTxs = snap.docs.map(d => ({id: d.id, ...d.data()}));
+                render(window.allTxs);
                 document.getElementById('loading').classList.add('hidden');
                 document.getElementById('app').classList.remove('hidden');
             });
         });
 
-        function handleReinvest() {
-            const profit = parseFloat(document.getElementById('stat-profit').dataset.raw);
-            if (profit > 0) {
-                db.collection('shared_transactions').add({
-                    date: new Date().toISOString().split('T')[0],
-                    category: 'cash',
-                    type: 'reinvest',
-                    amount: profit,
-                    ticker: '獲利轉本金',
-                    createdAt: Date.now()
-                }).then(() => alert("已轉入本金"));
-            }
-        }
-
         function render(txs) {
-            let principal = 0, profit = 0;
+            const cat = document.getElementById('input-category').value;
+            const filtered = txs.filter(t => t.category === cat);
             const tbody = document.getElementById('tx-tbody');
             tbody.innerHTML = '';
+            let p = 0, profit = 0;
+            
             txs.forEach(t => {
-                if(t.type === 'reinvest') principal += t.amount;
-                else if(t.type === 'deposit') principal += t.amount;
-                else profit += (t.amount || 0);
-                
-                tbody.innerHTML += `<tr><td class="p-3">${t.date}</td><td class="p-3">${t.ticker}</td><td class="p-3">${t.amount}</td><td class="p-3"><button onclick="db.collection('shared_transactions').doc('${t.id}').delete()">刪除</button></td></tr>`;
+                if(t.type === 'reinvest') p += t.amount;
+                else if(t.category === 'cash') p += t.amount;
+                else profit += t.amount;
             });
-            document.getElementById('stat-principal').innerText = '$' + principal;
+
+            filtered.forEach(t => {
+                tbody.innerHTML += `<tr><td class="p-3">${t.date}</td><td class="p-3">${t.ticker}</td><td class="p-3">${t.amount}</td><td class="p-3"><button onclick="db.collection('shared_transactions').doc('${t.id}').delete()" class="text-red-500">刪除</button></td></tr>`;
+            });
+
+            document.getElementById('stat-principal').innerText = '$' + p;
             document.getElementById('stat-profit').innerText = '$' + profit;
             document.getElementById('stat-profit').dataset.raw = profit;
             if(profit > 0) document.getElementById('btn-reinvest').classList.remove('hidden');
@@ -100,7 +105,7 @@
         document.getElementById('tx-form').onsubmit = (e) => {
             e.preventDefault();
             db.collection('shared_transactions').add({
-                date: new Date().toISOString().split('T')[0],
+                date: document.getElementById('input-date').value || new Date().toISOString().split('T')[0],
                 category: document.getElementById('input-category').value,
                 ticker: document.getElementById('input-ticker').value,
                 amount: parseFloat(document.getElementById('input-amount').value),
