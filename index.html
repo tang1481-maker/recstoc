@@ -130,6 +130,42 @@
     </div>
 </div>
 
+<!-- 編輯庫存 Modal -->
+<div id="editHoldingModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[100] flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
+        <h3 class="font-bold text-gray-800 mb-4 text-lg flex items-center gap-2">
+            <i data-lucide="edit" class="w-5 h-5 text-blue-600"></i> 編輯目前持有
+        </h3>
+        <input type="hidden" id="editHoldingId">
+        <div class="space-y-3">
+            <div class="flex gap-2">
+                <div class="w-1/3">
+                    <label class="block text-xs text-gray-500 mb-1">代號</label>
+                    <input type="text" id="editHoldingCode" class="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-500 text-sm">
+                </div>
+                <div class="w-2/3">
+                    <label class="block text-xs text-gray-500 mb-1">名稱</label>
+                    <input type="text" id="editHoldingName" class="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-500 text-sm">
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">持有數量</label>
+                <input type="number" step="0.0001" id="editHoldingQty" class="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-500 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500 mb-1">總成本 (NT$)</label>
+                <input type="number" step="0.01" id="editHoldingCost" class="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-500 text-sm">
+            </div>
+        </div>
+        <div class="flex justify-end gap-2 mt-5">
+            <button onclick="closeEditHoldingModal()" class="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg">取消</button>
+            <button onclick="confirmEditHoldingModal()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg flex items-center gap-2">
+                <i data-lucide="save" class="w-4 h-4"></i> 儲存修改
+            </button>
+        </div>
+    </div>
+</div>
+
 <script type="module">
     // ==========================================
     // Firebase 初始化設定 (使用 ES Module)
@@ -523,7 +559,10 @@
                         
                         <div class="space-y-3">
                             <input type="date" id="assetDate" value="${new Date().toISOString().split('T')[0]}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
-                            <input type="text" id="assetName" placeholder="資產名稱/代號 (如: 台積電、黃金存摺)" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                            <div class="flex gap-2">
+                                <input type="text" id="assetCode" placeholder="代號 (如: 2330)" class="w-1/3 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                                <input type="text" id="assetName" placeholder="名稱 (如: 台積電)" class="w-2/3 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                            </div>
                             <div class="flex gap-2">
                                 <input type="number" id="assetQty" step="0.0001" placeholder="數量" class="w-1/2 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
                                 <input type="number" id="assetPrice" step="0.01" placeholder="成交單價" class="w-1/2 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
@@ -548,7 +587,13 @@
                     return `
                     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 relative overflow-hidden">
                         <div class="flex justify-between items-start mb-2">
-                            <h4 class="font-bold text-lg text-gray-800">${h.name}</h4>
+                            <h4 class="font-bold text-lg text-gray-800 flex items-center gap-2">
+                                ${h.code ? `<span class="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded">${h.code}</span>` : ''}
+                                ${h.name}
+                                <button onclick="openEditHoldingModal('${h.id}')" class="text-gray-400 hover:text-blue-600 p-1 transition-colors">
+                                    <i data-lucide="edit" class="w-4 h-4"></i>
+                                </button>
+                            </h4>
                             <div class="text-right">
                                 <p class="text-xs text-gray-400">持有數量</p>
                                 <p class="font-semibold">${h.quantity.toLocaleString()}</p>
@@ -612,7 +657,9 @@
                                                 <span class="text-xs font-bold px-2 py-0.5 rounded ${isBuy ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">
                                                     ${isBuy ? '買入' : '賣出'}
                                                 </span>
-                                                <span class="text-sm font-medium text-gray-800">${t.name}</span>
+                                                <span class="text-sm font-medium text-gray-800">
+                                                    ${t.code ? `<span class="text-gray-500 mr-1">[${t.code}]</span>` : ''}${t.name}
+                                                </span>
                                             </div>
                                             <div class="text-xs text-gray-400 mt-1">
                                                 ${t.date} · 數量: ${t.qty} · 單價: ${t.price} <br> 
@@ -676,6 +723,49 @@
         }
     };
 
+    // --- 編輯目前持有的功能 ---
+    window.openEditHoldingModal = function(id) {
+        const holding = sharedData.holdings.find(h => h.id === id);
+        if (!holding) return;
+        
+        document.getElementById('editHoldingId').value = id;
+        document.getElementById('editHoldingCode').value = holding.code || '';
+        document.getElementById('editHoldingName').value = holding.name;
+        document.getElementById('editHoldingQty').value = holding.quantity;
+        document.getElementById('editHoldingCost').value = holding.totalCost;
+        
+        document.getElementById('editHoldingModal').classList.remove('hidden');
+    };
+
+    window.closeEditHoldingModal = function() {
+        document.getElementById('editHoldingModal').classList.add('hidden');
+    };
+
+    window.confirmEditHoldingModal = function() {
+        const id = document.getElementById('editHoldingId').value;
+        const code = document.getElementById('editHoldingCode').value.trim();
+        const name = document.getElementById('editHoldingName').value.trim();
+        const qty = parseFloat(document.getElementById('editHoldingQty').value);
+        const cost = parseFloat(document.getElementById('editHoldingCost').value);
+
+        if (!name || isNaN(qty) || isNaN(cost)) {
+            showToast('請確認名稱、數量及總成本格式是否正確');
+            return;
+        }
+
+        const holding = sharedData.holdings.find(h => h.id === id);
+        if (holding) {
+            holding.code = code;
+            holding.name = name;
+            holding.quantity = qty;
+            holding.totalCost = cost;
+            updateAndSave();
+            closeEditHoldingModal();
+            showToast('庫存已更新');
+        }
+    };
+
+
     window.submitCashTx = function() {
         const type = document.querySelector('input[name="cashType"]:checked').value;
         const date = document.getElementById('cashDate').value;
@@ -709,17 +799,25 @@
     window.submitAssetTx = function(category) {
         const type = document.querySelector('input[name="assetType"]:checked').value;
         const date = document.getElementById('assetDate').value;
+        const code = document.getElementById('assetCode').value.trim();
         const name = document.getElementById('assetName').value.trim();
         const qty = parseFloat(document.getElementById('assetQty').value);
         const price = parseFloat(document.getElementById('assetPrice').value);
         const fee = parseFloat(document.getElementById('assetFee').value) || 0;
 
+        // 代號為非必填(可能適用於儲蓄或基金)，但有填就會優先比對代號
         if (!date || !name || isNaN(qty) || qty <= 0 || isNaN(price) || price < 0) {
             showToast('請填寫完整資訊 (名稱、數量、單價)');
             return;
         }
 
-        let holdingIndex = sharedData.holdings.findIndex(h => h.category === category && h.name === name);
+        // 智慧尋找庫存：如果這次表單有填寫代號，就優先用代號比對；沒有代號的話，就用名稱比對。
+        let holdingIndex = sharedData.holdings.findIndex(h => {
+            if (h.category !== category) return false;
+            if (code && h.code) return h.code === code; 
+            return h.name === name;
+        });
+        
         let txAmount = 0;
         let realizedProfitForThisTx = 0;
 
@@ -731,9 +829,13 @@
                 sharedData.holdings[holdingIndex].quantity += qty;
                 sharedData.holdings[holdingIndex].totalCost += txAmount;
                 sharedData.holdings[holdingIndex].currentPrice = 0;
+                // 若庫存原本沒有代號，這次買入補上代號了，則更新代號
+                if (code && !sharedData.holdings[holdingIndex].code) {
+                    sharedData.holdings[holdingIndex].code = code;
+                }
             } else {
                 sharedData.holdings.push({
-                    id: Date.now().toString(), category, name, quantity: qty, totalCost: txAmount, currentPrice: 0
+                    id: Date.now().toString(), category, code, name, quantity: qty, totalCost: txAmount, currentPrice: 0
                 });
             }
         } else if (type === 'sell') {
@@ -762,7 +864,7 @@
 
         sharedData.transactions.push({
             id: Date.now().toString(),
-            date, type, category, name, qty, price, fee, amount: txAmount, profit: realizedProfitForThisTx, user: currentUser
+            date, type, category, code, name, qty, price, fee, amount: txAmount, profit: realizedProfitForThisTx, user: currentUser
         });
 
         isFormOpen = false;
@@ -790,8 +892,12 @@
                 sharedData.realizedProfit -= tx.amount;
             }
         } else {
-            // 資產交易復原
-            let holding = sharedData.holdings.find(h => h.category === tx.category && h.name === tx.name);
+            // 資產交易復原 (同樣以代號優先，名稱次之來尋找庫存)
+            let holding = sharedData.holdings.find(h => {
+                if (h.category !== tx.category) return false;
+                if (tx.code && h.code) return h.code === tx.code;
+                return h.name === tx.name;
+            });
             
             if (tx.type === 'buy') {
                 sharedData.cashPool += tx.amount; // 退回當初買入扣掉的錢
@@ -816,6 +922,7 @@
                     sharedData.holdings.push({
                         id: Date.now().toString(),
                         category: tx.category,
+                        code: tx.code || '',
                         name: tx.name,
                         quantity: tx.qty,
                         totalCost: costOfSold,
@@ -886,11 +993,12 @@
 
         const rows = filteredTxs.map(t => {
             const typeStr = { 'buy':'買入', 'sell':'賣出', 'deposit':'存入本金', 'withdraw':'提領本金', 'dividend':'股息/利息' }[t.type] || t.type;
+            const itemName = t.code ? `[${t.code}] ${t.name}` : t.name;
             return [
                 t.date,
                 t.category === 'cash' ? '現金流水' : t.category,
                 typeStr,
-                `"${t.name}"`, 
+                `"${itemName}"`, 
                 t.qty || '',
                 t.price || '',
                 t.fee || 0,
