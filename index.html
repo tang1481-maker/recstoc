@@ -53,22 +53,35 @@
             <p class="text-blue-100 text-sm mb-1">總資產現值 (NT$)</p>
             <h2 class="text-3xl font-bold mb-4" id="dashTotalAsset">0</h2>
             
-            <div class="grid grid-cols-2 gap-4">
+            <!-- 改版為 3x2 (6格) 的財務數據儀表板 -->
+            <div class="grid grid-cols-2 gap-y-4 gap-x-2">
                 <div>
                     <p class="text-blue-200 text-xs">整體本金報酬率</p>
-                    <p class="text-lg font-semibold" id="dashROI">0.00%</p>
-                </div>
-                <div>
-                    <p class="text-blue-200 text-xs">已實現總獲利</p>
-                    <p class="text-lg font-semibold" id="dashRealizedProfit">0</p>
+                    <p class="text-base font-semibold" id="dashROI">0.00%</p>
                 </div>
                 <div>
                     <p class="text-blue-200 text-xs">真實投入本金</p>
-                    <p class="text-sm font-medium" id="dashRealCapital">0</p>
+                    <p class="text-base font-medium" id="dashRealCapital">0</p>
+                </div>
+                
+                <!-- 新增：目前投入成本 -->
+                <div>
+                    <p class="text-blue-200 text-xs">目前投入成本</p>
+                    <p class="text-base font-medium" id="dashCurrentInvested">0</p>
                 </div>
                 <div>
                     <p class="text-blue-200 text-xs">資金池餘額</p>
-                    <p class="text-sm font-medium" id="dashCashPool">0</p>
+                    <p class="text-base font-medium" id="dashCashPool">0</p>
+                </div>
+
+                <!-- 新增：未實現總損益 -->
+                <div>
+                    <p class="text-blue-200 text-xs">未實現總損益</p>
+                    <p class="text-base font-semibold" id="dashUnrealizedProfit">0</p>
+                </div>
+                <div>
+                    <p class="text-blue-200 text-xs">已實現總獲利</p>
+                    <p class="text-base font-semibold" id="dashRealizedProfit">0</p>
                 </div>
             </div>
         </div>
@@ -309,6 +322,43 @@
         return { totalCurrentAssetValue, totalUnrealizedProfit };
     }
 
+    function renderDashboard() {
+        // 取出目前的資產現值與未實現損益
+        const { totalCurrentAssetValue, totalUnrealizedProfit } = getUnrealizedData();
+        
+        // 總資產 = 資金池 + 持有資產市值
+        const totalAsset = sharedData.cashPool + totalCurrentAssetValue;
+        
+        // 目前投入成本 = 把所有持有的庫存總成本加起來 (這個方法最精準，能自動處理已實現獲利的變動)
+        const currentInvestedCost = sharedData.holdings.reduce((sum, h) => sum + h.totalCost, 0);
+
+        let roi = 0;
+        if (sharedData.realCapital > 0) {
+            roi = ((totalAsset - sharedData.realCapital) / sharedData.realCapital) * 100;
+        }
+
+        // 渲染資料至畫面
+        document.getElementById('dashTotalAsset').textContent = formatMoney(totalAsset);
+        
+        const roiEl = document.getElementById('dashROI');
+        roiEl.textContent = (roi > 0 ? '+' : '') + roi.toFixed(2) + '%';
+        roiEl.className = `text-base font-semibold ${roi >= 0 ? 'text-blue-100' : 'text-red-300'}`;
+
+        document.getElementById('dashRealCapital').textContent = formatMoney(sharedData.realCapital);
+        document.getElementById('dashCashPool').textContent = formatMoney(sharedData.cashPool);
+        
+        document.getElementById('dashCurrentInvested').textContent = formatMoney(currentInvestedCost);
+
+        const unrealizedEl = document.getElementById('dashUnrealizedProfit');
+        unrealizedEl.textContent = (totalUnrealizedProfit > 0 ? '+' : '') + formatMoney(totalUnrealizedProfit);
+        // 使用藍色面板的字體配色
+        unrealizedEl.className = `text-base font-semibold ${totalUnrealizedProfit >= 0 ? 'text-blue-100' : 'text-red-300'}`;
+        
+        const profitEl = document.getElementById('dashRealizedProfit');
+        profitEl.textContent = (sharedData.realizedProfit > 0 ? '+' : '') + formatMoney(sharedData.realizedProfit);
+        profitEl.className = `text-base font-semibold ${sharedData.realizedProfit >= 0 ? 'text-blue-100' : 'text-red-300'}`;
+    }
+
     function renderAll() {
         lucide.createIcons();
         renderHeader();
@@ -368,28 +418,6 @@
         toast.classList.remove('opacity-0');
         setTimeout(() => toast.classList.add('opacity-0'), 3000);
     };
-
-    function renderDashboard() {
-        const { totalCurrentAssetValue } = getUnrealizedData();
-        const totalAsset = sharedData.cashPool + totalCurrentAssetValue;
-        
-        let roi = 0;
-        if (sharedData.realCapital > 0) {
-            roi = ((totalAsset - sharedData.realCapital) / sharedData.realCapital) * 100;
-        }
-
-        document.getElementById('dashTotalAsset').textContent = formatMoney(totalAsset);
-        
-        const roiEl = document.getElementById('dashROI');
-        roiEl.textContent = (roi > 0 ? '+' : '') + roi.toFixed(2) + '%';
-        roiEl.className = `text-lg font-semibold ${roi >= 0 ? 'text-blue-100' : 'text-red-300'}`;
-
-        document.getElementById('dashRealCapital').textContent = formatMoney(sharedData.realCapital);
-        document.getElementById('dashCashPool').textContent = formatMoney(sharedData.cashPool);
-        
-        const profitEl = document.getElementById('dashRealizedProfit');
-        profitEl.textContent = (sharedData.realizedProfit > 0 ? '+' : '') + formatMoney(sharedData.realizedProfit);
-    }
 
     function renderTabs() {
         const container = document.getElementById('tabContainer');
