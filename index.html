@@ -932,12 +932,21 @@
                 return h.name === tx.name;
             });
             
+            // 【新增防呆】檢查刪除這筆交易後，歷史紀錄中是否還留有該資產的其他交易明細
+            const remainingAssetTxs = sharedData.transactions.filter(t => 
+                t.id !== id && 
+                t.category === tx.category && 
+                ((tx.code && t.code === tx.code) || (!tx.code && t.name === tx.name))
+            );
+            
             if (tx.type === 'buy') {
                 sharedData.cashPool += tx.amount; // 退回當初買入扣掉的錢
                 if (holding) {
                     holding.quantity -= tx.qty;
                     holding.totalCost -= tx.amount;
-                    if (holding.quantity <= 0.000001) {
+                    
+                    // 【修正優化】放寬浮點數判斷門檻，並結合「若無剩餘交易則強制清除」的邏輯
+                    if (holding.quantity <= 0.0001 || remainingAssetTxs.length === 0) {
                         sharedData.holdings = sharedData.holdings.filter(h => h.id !== holding.id);
                     }
                 }
