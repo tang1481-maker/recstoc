@@ -2,119 +2,847 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>全資產交易紀錄器</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>個人資產交易紀錄器 (雲端版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        .tab-btn.active { border-bottom: 2px solid #2563eb; color: #2563eb; font-weight: bold; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .text-profit { color: #ef4444; } 
+        .text-loss { color: #22c55e; }   
+        body { background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     </style>
 </head>
-<body class="p-6 bg-gray-50">
-    <div id="loading" class="fixed inset-0 flex items-center justify-center bg-white z-50">載入中...</div>
+<body class="text-gray-800">
+
+<!-- 載入中遮罩 -->
+<div id="loadingOverlay" class="fixed inset-0 bg-white/90 z-[200] flex items-center justify-center backdrop-blur-sm transition-opacity duration-300">
+    <div class="text-center text-blue-600 font-bold flex flex-col items-center gap-3">
+        <svg class="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span>連線至雲端資料庫中...</span>
+    </div>
+</div>
+
+<div class="max-w-md mx-auto bg-gray-50 min-h-screen relative pb-20 shadow-xl">
     
-    <div id="app" class="max-w-7xl mx-auto space-y-6 hidden">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div class="card p-4 bg-white shadow rounded-lg">本金: <span id="stat-principal" class="font-bold">$0</span></div>
-            <div class="card p-4 bg-white shadow rounded-lg">現金: <span id="stat-cash" class="font-bold">$0</span></div>
-            <div class="card p-4 bg-white shadow rounded-lg flex justify-between">獲利: <span id="stat-profit" class="font-bold">$0</span> 
-                <button id="btn-reinvest" onclick="handleReinvest()" class="hidden text-xs bg-green-100 px-2 py-1 rounded">轉本金</button>
+    <!-- 頂部固定區 (Sticky Header) -->
+    <header class="sticky top-0 z-50 bg-white shadow-sm px-4 py-3 flex justify-between items-center">
+        <h1 class="text-lg font-bold text-gray-800 flex items-center gap-2">
+            <i data-lucide="cloud" class="w-5 h-5 text-blue-600"></i> 資產紀錄器
+        </h1>
+        <div class="flex items-center gap-3">
+            <select id="headerUserSelect" onchange="changeCurrentUser(this.value)" class="text-sm border-gray-300 rounded-md bg-gray-100 px-2 py-1 outline-none">
+                <!-- 動態載入使用者 -->
+            </select>
+            <button onclick="openExportModal()" class="text-gray-600 p-1 bg-gray-100 rounded-full hover:bg-gray-200">
+                <i data-lucide="download" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- 區塊一：總投資面板 (Dashboard) -->
+    <div class="p-4">
+        <div class="bg-gradient-to-br from-blue-700 to-blue-500 rounded-2xl p-5 text-white shadow-lg relative overflow-hidden">
+            <div class="absolute top-0 right-0 opacity-10">
+                <i data-lucide="trending-up" class="w-32 h-32 -mr-8 -mt-8"></i>
             </div>
-            <div class="card p-4 bg-white shadow rounded-lg">報酬: <span id="stat-roi" class="font-bold">0%</span></div>
-        </div>
-
-        <div class="flex space-x-2 border-b">
-            <div class="tab-btn active px-4 py-2 cursor-pointer" onclick="showTab('stock', event)">股票</div>
-            <div class="tab-btn px-4 py-2 cursor-pointer" onclick="showTab('crypto', event)">加密貨幣</div>
-            <div class="tab-btn px-4 py-2 cursor-pointer" onclick="showTab('fund', event)">基金</div>
-        </div>
-
-        <div class="card p-6 bg-white shadow rounded-lg">
-            <form id="tx-form" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                <input type="hidden" id="input-category" value="stock">
-                <input type="text" id="input-ticker" placeholder="資產名稱" class="border p-2 rounded">
-                <input type="number" id="input-amount" placeholder="金額" class="border p-2 rounded">
-                <input type="date" id="input-date" class="border p-2 rounded">
-                <button type="submit" class="bg-blue-600 text-white p-2 rounded">新增紀錄</button>
-            </form>
-            <table class="w-full text-left">
-                <thead><tr class="bg-gray-50"><th class="p-3">日期</th><th class="p-3">項目</th><th class="p-3">金額</th><th class="p-3">操作</th></tr></thead>
-                <tbody id="tx-tbody"></tbody>
-            </table>
+            <p class="text-blue-100 text-sm mb-1">總資產現值 (NT$)</p>
+            <h2 class="text-3xl font-bold mb-4" id="dashTotalAsset">0</h2>
+            
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <p class="text-blue-200 text-xs">整體本金報酬率</p>
+                    <p class="text-lg font-semibold" id="dashROI">0.00%</p>
+                </div>
+                <div>
+                    <p class="text-blue-200 text-xs">已實現總獲利</p>
+                    <p class="text-lg font-semibold" id="dashRealizedProfit">0</p>
+                </div>
+                <div>
+                    <p class="text-blue-200 text-xs">真實投入本金</p>
+                    <p class="text-sm font-medium" id="dashRealCapital">0</p>
+                </div>
+                <div>
+                    <p class="text-blue-200 text-xs">資金池餘額</p>
+                    <p class="text-sm font-medium" id="dashCashPool">0</p>
+                </div>
+            </div>
         </div>
     </div>
 
-    <script>
-        // 變數名稱改為 config，確保與下方呼叫一致
-        const config = {
-  apiKey: "AIzaSyA7p0zjKK2FkrAUquvME7z9RDNPIXMB1dY",
-  authDomain: "new-mystoc.firebaseapp.com",
-  projectId: "new-mystoc",
-  storageBucket: "new-mystoc.firebasestorage.app",
-  messagingSenderId: "562255915934",
-  appId: "1:562255915934:web:b43f6db8554dcb325ac48f"
-};
+    <!-- 區塊二：資產分類頁籤列 -->
+    <div class="px-4 pb-2">
+        <div class="flex overflow-x-auto no-scrollbar gap-2 py-1" id="tabContainer">
+            <!-- 頁籤按鈕動態產生 -->
+        </div>
+    </div>
 
-        firebase.initializeApp(config);
-        const db = firebase.firestore();
-        const auth = firebase.auth();
+    <!-- 區塊三：動態內容區 -->
+    <main id="mainContent" class="px-4 pb-6">
+        <!-- 內容由 JS 動態渲染 -->
+    </main>
 
-        function showTab(cat, event) {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            event.target.classList.add('active');
-            document.getElementById('input-category').value = cat;
-            render(window.allTxs);
-        }
+</div>
 
-        auth.signInAnonymously().then(() => {
-            db.collection('shared_transactions').onSnapshot(snap => {
-                window.allTxs = snap.docs.map(d => ({id: d.id, ...d.data()}));
-                render(window.allTxs);
-                document.getElementById('loading').classList.add('hidden');
-                document.getElementById('app').classList.remove('hidden');
+<!-- 提示訊息 (Toast) -->
+<div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 bg-gray-800 text-white px-4 py-2 rounded-lg shadow-lg z-[100] transition-opacity duration-300 opacity-0 pointer-events-none whitespace-nowrap text-sm">
+    訊息
+</div>
+
+<!-- 新增填寫人 Modal -->
+<div id="addUserModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[100] flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
+        <h3 class="font-bold text-gray-800 mb-4 text-lg">新增填寫人</h3>
+        <input type="text" id="modalNewUserName" placeholder="請輸入新的填寫人名稱" class="w-full border border-gray-300 rounded-lg px-3 py-2 outline-none focus:border-blue-500 mb-4">
+        <div class="flex justify-end gap-2">
+            <button onclick="closeAddUserModal()" class="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg">取消</button>
+            <button onclick="confirmAddUserModal()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg">確認</button>
+        </div>
+    </div>
+</div>
+
+<!-- 匯出資料 Modal -->
+<div id="exportModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[100] flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
+        <h3 class="font-bold text-gray-800 mb-4 text-lg flex items-center gap-2">
+            <i data-lucide="calendar-range" class="w-5 h-5 text-blue-600"></i> 選擇匯出區間
+        </h3>
+        <div class="space-y-4 mb-6">
+            <div>
+                <label class="block text-sm text-gray-600 mb-1">起始日期</label>
+                <input type="date" id="exportStartDate" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500">
+            </div>
+            <div>
+                <label class="block text-sm text-gray-600 mb-1">結束日期</label>
+                <input type="date" id="exportEndDate" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500">
+            </div>
+        </div>
+        <div class="flex justify-end gap-2">
+            <button onclick="closeExportModal()" class="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg">取消</button>
+            <button onclick="confirmExportCSV()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg flex items-center gap-2">
+                <i data-lucide="download" class="w-4 h-4"></i> 匯出 CSV
+            </button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    // ==========================================
+    // Firebase 初始化設定 (使用 ES Module)
+    // ==========================================
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyA7p0zjKK2FkrAUquvME7z9RDNPIXMB1dY",
+        authDomain: "new-mystoc.firebaseapp.com",
+        projectId: "new-mystoc",
+        storageBucket: "new-mystoc.firebasestorage.app",
+        messagingSenderId: "562255915934",
+        appId: "1:562255915934:web:b43f6db8554dcb325ac48f"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    
+    // 定義 Firebase 資料庫路徑 (使用單一文件儲存全家共享狀態)
+    const APP_ID = 'mystoc-shared-app'; 
+    const docRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'tracker', 'shared_state');
+
+    // ==========================================
+    // 狀態管理 (State) 區分本機與雲端
+    // ==========================================
+    const CATEGORIES = ['股票', '黃金', '外幣/加密貨幣', '儲蓄/基金', '現金池與流水帳', '系統設定'];
+    
+    // UI 控制狀態 (不存檔)
+    let activeTab = '股票';
+    let isFormOpen = false;
+
+    // 1. 本機偏好設定 (Local Storage - 每台手機獨立)
+    let currentUser = localStorage.getItem('mystoc_currentUser');
+    let collapsedGroups = JSON.parse(localStorage.getItem('mystoc_collapsedGroups') || '{}');
+
+    // 2. 雲端共用資料庫 (Firebase - 全家同步)
+    let sharedData = {
+        users: [],
+        realCapital: 0,
+        cashPool: 0,
+        realizedProfit: 0,
+        holdings: [], 
+        transactions: []
+    };
+
+    // ==========================================
+    // 啟動 Firebase 監聽與身分驗證
+    // ==========================================
+    async function initFirebase() {
+        try {
+            await signInAnonymously(auth);
+            
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    // 開始即時監聽雲端資料變化
+                    onSnapshot(docRef, (docSnap) => {
+                        if (docSnap.exists()) {
+                            sharedData = docSnap.data();
+                            // 防呆
+                            if(!sharedData.users) sharedData.users = ['預設本人'];
+                            if(!sharedData.holdings) sharedData.holdings = [];
+                            if(!sharedData.transactions) sharedData.transactions = [];
+                            
+                            // 若本機沒有選過人，預設抓雲端第一個人
+                            if (!currentUser && sharedData.users.length > 0) {
+                                currentUser = sharedData.users[0];
+                                saveLocalData();
+                            }
+                        } else {
+                            // 第一次使用，建立預設雲端資料
+                            sharedData.users = ['預設本人'];
+                            updateToFirebase();
+                            currentUser = '預設本人';
+                            saveLocalData();
+                        }
+                        
+                        // 隱藏載入中畫面，重新渲染介面
+                        document.getElementById('loadingOverlay').classList.add('hidden');
+                        renderAll();
+                    }, (error) => {
+                        console.error("Firestore error:", error);
+                        showToast("雲端資料同步失敗，請檢查網路");
+                    });
+                }
             });
+        } catch (error) {
+            console.error("Auth error:", error);
+            showToast("系統認證失敗");
+        }
+    }
+
+    // 將資料寫入 Firebase 雲端
+    async function updateToFirebase() {
+        try {
+            await setDoc(docRef, sharedData);
+        } catch (error) {
+            console.error("Save error:", error);
+            showToast("儲存至雲端失敗！");
+        }
+    }
+
+    // 將偏好寫入本機 Local Storage
+    function saveLocalData() {
+        if(currentUser) localStorage.setItem('mystoc_currentUser', currentUser);
+        localStorage.setItem('mystoc_collapsedGroups', JSON.stringify(collapsedGroups));
+    }
+
+    // 更新並儲存
+    function updateAndSave() {
+        renderAll();          // 先在本機畫面更新，讓操作感覺流暢
+        updateToFirebase();   // 背景發送給 Firebase 同步給其他人
+    }
+
+
+    // ==========================================
+    // 核心邏輯與畫面渲染 (Render)
+    // ==========================================
+    function formatMoney(num) {
+        return Number(num).toLocaleString('zh-TW', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+
+    function getUnrealizedData() {
+        let totalCurrentAssetValue = 0;
+        let totalUnrealizedProfit = 0;
+
+        sharedData.holdings.forEach(h => {
+            const currentPrice = h.currentPrice || (h.totalCost / h.quantity);
+            const marketValue = h.quantity * currentPrice;
+            totalCurrentAssetValue += marketValue;
+            totalUnrealizedProfit += (marketValue - h.totalCost);
         });
 
-        function render(txs) {
-            const cat = document.getElementById('input-category').value;
-            const filtered = txs ? txs.filter(t => t.category === cat) : [];
-            const tbody = document.getElementById('tx-tbody');
-            tbody.innerHTML = '';
-            let p = 0, profit = 0;
-            
-            if (txs) {
-                txs.forEach(t => {
-                    if(t.type === 'reinvest') p += t.amount;
-                    else if(t.category === 'cash') p += t.amount;
-                    else profit += t.amount;
-                });
+        return { totalCurrentAssetValue, totalUnrealizedProfit };
+    }
+
+    function renderAll() {
+        lucide.createIcons();
+        renderHeader();
+        renderDashboard();
+        renderTabs();
+        renderMainContent();
+    }
+
+    function renderHeader() {
+        const select = document.getElementById('headerUserSelect');
+        let optionsHTML = sharedData.users.map(u => 
+            `<option value="${u}" ${u === currentUser ? 'selected' : ''}>${u}</option>`
+        ).join('');
+        
+        optionsHTML += `<option disabled>──────────</option>`;
+        optionsHTML += `<option value="ADD_NEW">➕ 新增填寫人...</option>`;
+        
+        select.innerHTML = optionsHTML;
+    }
+
+    // 定義到 window 上，讓 HTML 的 onclick 可以呼叫 module 內的函數
+    window.changeCurrentUser = function(name) {
+        if (name === 'ADD_NEW') {
+            document.getElementById('addUserModal').classList.remove('hidden');
+            document.getElementById('modalNewUserName').value = '';
+            document.getElementById('modalNewUserName').focus();
+        } else {
+            currentUser = name;
+            saveLocalData();
+            renderAll();
+        }
+    };
+
+    window.closeAddUserModal = function() {
+        document.getElementById('addUserModal').classList.add('hidden');
+        renderHeader(); 
+    };
+
+    window.confirmAddUserModal = function() {
+        const newName = document.getElementById('modalNewUserName').value.trim();
+        if (newName !== '') {
+            if (!sharedData.users.includes(newName)) {
+                sharedData.users.push(newName);
             }
+            currentUser = newName;
+            document.getElementById('addUserModal').classList.add('hidden');
+            saveLocalData();
+            updateAndSave(); // 新增使用者要同步到雲端
+        } else {
+            showToast('名稱不能為空');
+        }
+    };
 
-            filtered.forEach(t => {
-                tbody.innerHTML += `<tr><td class="p-3">${t.date}</td><td class="p-3">${t.ticker}</td><td class="p-3">${t.amount}</td><td class="p-3"><button onclick="db.collection('shared_transactions').doc('${t.id}').delete()" class="text-red-500">刪除</button></td></tr>`;
-            });
+    window.showToast = function(msg) {
+        const toast = document.getElementById('toast');
+        toast.textContent = msg;
+        toast.classList.remove('opacity-0');
+        setTimeout(() => toast.classList.add('opacity-0'), 3000);
+    };
 
-            document.getElementById('stat-principal').innerText = '$' + p;
-            document.getElementById('stat-profit').innerText = '$' + profit;
-            if(profit > 0) document.getElementById('btn-reinvest').classList.remove('hidden');
+    function renderDashboard() {
+        const { totalCurrentAssetValue } = getUnrealizedData();
+        const totalAsset = sharedData.cashPool + totalCurrentAssetValue;
+        
+        let roi = 0;
+        if (sharedData.realCapital > 0) {
+            roi = ((totalAsset - sharedData.realCapital) / sharedData.realCapital) * 100;
         }
 
-        document.getElementById('tx-form').onsubmit = (e) => {
-            e.preventDefault();
-            db.collection('shared_transactions').add({
-                date: document.getElementById('input-date').value || new Date().toISOString().split('T')[0],
-                category: document.getElementById('input-category').value,
-                ticker: document.getElementById('input-ticker').value,
-                amount: parseFloat(document.getElementById('input-amount').value),
-                type: 'buy',
-                createdAt: Date.now()
-            });
+        document.getElementById('dashTotalAsset').textContent = formatMoney(totalAsset);
+        
+        const roiEl = document.getElementById('dashROI');
+        roiEl.textContent = (roi > 0 ? '+' : '') + roi.toFixed(2) + '%';
+        roiEl.className = `text-lg font-semibold ${roi >= 0 ? 'text-blue-100' : 'text-red-300'}`;
+
+        document.getElementById('dashRealCapital').textContent = formatMoney(sharedData.realCapital);
+        document.getElementById('dashCashPool').textContent = formatMoney(sharedData.cashPool);
+        
+        const profitEl = document.getElementById('dashRealizedProfit');
+        profitEl.textContent = (sharedData.realizedProfit > 0 ? '+' : '') + formatMoney(sharedData.realizedProfit);
+    }
+
+    function renderTabs() {
+        const container = document.getElementById('tabContainer');
+        container.innerHTML = CATEGORIES.map(cat => `
+            <button onclick="switchTab('${cat}')" 
+                class="whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    activeTab === cat 
+                    ? 'bg-blue-600 text-white shadow-md' 
+                    : 'bg-white text-gray-500 border border-gray-200 hover:bg-gray-50'
+                }">
+                ${cat}
+            </button>
+        `).join('');
+    }
+
+    window.switchTab = function(tab) {
+        activeTab = tab;
+        isFormOpen = false;
+        renderAll();
+    };
+
+    function renderMainContent() {
+        const main = document.getElementById('mainContent');
+        if (activeTab === '系統設定') {
+            main.innerHTML = getSettingsHTML();
+        } else if (activeTab === '現金池與流水帳') {
+            main.innerHTML = getCashPoolHTML();
+        } else {
+            main.innerHTML = getAssetHTML(activeTab);
+        }
+        lucide.createIcons();
+    }
+
+    function groupTransactionsByMonth(txs) {
+        const groups = {};
+        txs.forEach(t => {
+            const month = t.date.substring(0, 7); 
+            if (!groups[month]) groups[month] = [];
+            groups[month].push(t);
+        });
+        return groups;
+    }
+
+    function getSettingsHTML() {
+        return `
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-4">
+                <h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                    <i data-lucide="users" class="w-5 h-5"></i> 填寫人名單管理 (雲端同步)
+                </h3>
+                <div class="flex gap-2 mb-4">
+                    <input type="text" id="newUserName" placeholder="輸入家人名稱" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500">
+                    <button onclick="addUser()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium">新增</button>
+                </div>
+                <ul class="divide-y divide-gray-100">
+                    ${sharedData.users.map((u, idx) => `
+                        <li class="py-2 flex justify-between items-center text-sm">
+                            <span>${u} ${u === currentUser ? '<span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded ml-2">目前裝置使用中</span>' : ''}</span>
+                            ${sharedData.users.length > 1 ? `<button onclick="deleteUser(${idx})" class="text-red-500 hover:text-red-700 p-1"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+                        </li>
+                    `).join('')}
+                </ul>
+            </div>
+            <div class="text-xs text-gray-400 text-center mt-8">
+                雲端版提醒：所有新增的交易紀錄與名單皆會自動同步至 Firebase。
+            </div>
+        `;
+    }
+
+    function getCashPoolHTML() {
+        return `
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+                <h3 class="font-bold text-gray-700 mb-3">紀錄資金進出</h3>
+                <div class="grid grid-cols-3 gap-2 mb-3">
+                    <label class="cursor-pointer">
+                        <input type="radio" name="cashType" value="deposit" class="peer sr-only" checked>
+                        <div class="text-center text-sm py-2 border rounded-lg peer-checked:bg-blue-50 peer-checked:border-blue-500 peer-checked:text-blue-700">存入本金</div>
+                    </label>
+                    <label class="cursor-pointer">
+                        <input type="radio" name="cashType" value="withdraw" class="peer sr-only">
+                        <div class="text-center text-sm py-2 border rounded-lg peer-checked:bg-orange-50 peer-checked:border-orange-500 peer-checked:text-orange-700">提領本金</div>
+                    </label>
+                    <label class="cursor-pointer">
+                        <input type="radio" name="cashType" value="dividend" class="peer sr-only">
+                        <div class="text-center text-sm py-2 border rounded-lg peer-checked:bg-green-50 peer-checked:border-green-500 peer-checked:text-green-700">領取股息利息</div>
+                    </label>
+                </div>
+                <div class="space-y-3">
+                    <input type="date" id="cashDate" value="${new Date().toISOString().split('T')[0]}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                    <input type="number" id="cashAmount" placeholder="金額" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                    <input type="text" id="cashNote" placeholder="來源或備註 (例如: 薪水轉入、台積電配息)" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                    <button onclick="submitCashTx()" class="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-bold shadow-sm flex items-center justify-center gap-2"><i data-lucide="cloud-upload" class="w-4 h-4"></i> 寫入雲端帳本</button>
+                    <p class="text-xs text-gray-400 text-center">將以標籤 [${currentUser}] 紀錄此筆資料</p>
+                </div>
+            </div>
+
+            <h3 class="font-bold text-gray-700 mb-3 px-1">資金歷史明細</h3>
+            <div class="space-y-4">
+                ${(() => {
+                    const cashTxs = sharedData.transactions.filter(t => ['deposit', 'withdraw', 'dividend'].includes(t.type)).reverse();
+                    if (cashTxs.length === 0) return '<p class="text-center text-sm text-gray-400 py-4">暫無明細</p>';
+                    
+                    const groups = groupTransactionsByMonth(cashTxs);
+                    return Object.keys(groups).sort().reverse().map(month => {
+                        const groupKey = 'cash_' + month;
+                        const isCollapsed = collapsedGroups[groupKey];
+                        const monthLabel = month.replace('-', '年') + '月';
+                        
+                        return `
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                            <button onclick="toggleGroup('${groupKey}')" class="w-full flex justify-between items-center bg-gray-50 px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-100 transition-colors">
+                                <span>${monthLabel}</span>
+                                <i data-lucide="${isCollapsed ? 'chevron-down' : 'chevron-up'}" class="w-4 h-4 text-gray-500"></i>
+                            </button>
+                            <div class="${isCollapsed ? 'hidden' : 'space-y-2 p-3 border-t border-gray-100'}">
+                                ${groups[month].map(t => `
+                                    <div class="bg-white p-3 rounded-lg border border-gray-100 flex justify-between items-center">
+                                        <div>
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-xs font-bold px-2 py-0.5 rounded ${t.type==='deposit'?'bg-blue-100 text-blue-700':t.type==='withdraw'?'bg-orange-100 text-orange-700':'bg-green-100 text-green-700'}">
+                                                    ${t.type==='deposit'?'存入':t.type==='withdraw'?'提領':'股息'}
+                                                </span>
+                                                <span class="text-sm font-medium text-gray-800">${t.name}</span>
+                                            </div>
+                                            <div class="text-xs text-gray-400 mt-1">${t.date} · 紀錄者: ${t.user}</div>
+                                        </div>
+                                        <div class="font-bold ${t.type==='withdraw'?'text-gray-700':'text-profit'}">
+                                            ${t.type==='withdraw'?'-':'+'}${formatMoney(t.amount)}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        `;
+                    }).join('');
+                })()}
+            </div>
+        `;
+    }
+
+    function getAssetHTML(category) {
+        const holdings = sharedData.holdings.filter(h => h.category === category);
+        const txs = sharedData.transactions.filter(t => t.category === category).reverse();
+
+        return `
+            <div class="mb-6">
+                ${!isFormOpen ? `
+                    <button onclick="toggleForm(true)" class="w-full bg-white border border-dashed border-gray-300 text-blue-600 rounded-xl py-3 text-sm font-bold shadow-sm flex items-center justify-center gap-2 hover:bg-gray-50">
+                        <i data-lucide="plus-circle" class="w-5 h-5"></i> 新增 ${category} 交易
+                    </button>
+                ` : `
+                    <div class="bg-white rounded-xl shadow-sm border border-blue-100 p-4">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="font-bold text-gray-700">新增交易</h3>
+                            <button onclick="toggleForm(false)" class="text-gray-400 hover:text-gray-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-2 mb-3">
+                            <label class="cursor-pointer">
+                                <input type="radio" name="assetType" value="buy" class="peer sr-only" checked>
+                                <div class="text-center text-sm py-2 border rounded-lg peer-checked:bg-red-50 peer-checked:border-red-500 peer-checked:text-red-600">買入 (扣款)</div>
+                            </label>
+                            <label class="cursor-pointer">
+                                <input type="radio" name="assetType" value="sell" class="peer sr-only">
+                                <div class="text-center text-sm py-2 border rounded-lg peer-checked:bg-green-50 peer-checked:border-green-500 peer-checked:text-green-600">賣出 (入帳)</div>
+                            </label>
+                        </div>
+                        
+                        <div class="space-y-3">
+                            <input type="date" id="assetDate" value="${new Date().toISOString().split('T')[0]}" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                            <input type="text" id="assetName" placeholder="資產名稱/代號 (如: 台積電、黃金存摺)" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                            <div class="flex gap-2">
+                                <input type="number" id="assetQty" step="0.0001" placeholder="數量" class="w-1/2 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                                <input type="number" id="assetPrice" step="0.01" placeholder="成交單價" class="w-1/2 border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                            </div>
+                            <input type="number" id="assetFee" placeholder="手續費/稅金 (選填)" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none">
+                            <button onclick="submitAssetTx('${category}')" class="w-full bg-blue-600 text-white rounded-lg py-2 text-sm font-bold shadow-sm flex items-center justify-center gap-2"><i data-lucide="cloud-upload" class="w-4 h-4"></i> 寫入雲端帳本</button>
+                            <p class="text-xs text-gray-400 text-center">自動標籤：${currentUser}</p>
+                        </div>
+                    </div>
+                `}
+            </div>
+
+            <h3 class="font-bold text-gray-700 mb-3 px-1">目前持有</h3>
+            <div class="space-y-3 mb-6">
+                ${holdings.map(h => {
+                    const avgCost = h.totalCost / h.quantity;
+                    const currentP = h.currentPrice || avgCost;
+                    const unrealized = (currentP - avgCost) * h.quantity;
+                    const returnRate = ((currentP - avgCost) / avgCost) * 100;
+                    const isProfit = unrealized >= 0;
+
+                    return `
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 relative overflow-hidden">
+                        <div class="flex justify-between items-start mb-2">
+                            <h4 class="font-bold text-lg text-gray-800">${h.name}</h4>
+                            <div class="text-right">
+                                <p class="text-xs text-gray-400">持有數量</p>
+                                <p class="font-semibold">${h.quantity.toLocaleString()}</p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4 mb-3 pb-3 border-b border-gray-50">
+                            <div>
+                                <p class="text-xs text-gray-400">均價成本</p>
+                                <p class="font-medium">NT$ ${formatMoney(avgCost)}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-gray-400">總成本</p>
+                                <p class="font-medium">NT$ ${formatMoney(h.totalCost)}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center gap-3 bg-gray-50 p-2 rounded-lg">
+                            <div class="flex-1">
+                                <label class="text-xs text-gray-500 block mb-1">手動輸入現價</label>
+                                <input type="number" value="${h.currentPrice || ''}" placeholder="${formatMoney(avgCost)}" 
+                                    onchange="updateHoldingPrice('${h.id}', this.value)"
+                                    class="w-full border-gray-300 rounded bg-white px-2 py-1 text-sm outline-none border focus:border-blue-400">
+                            </div>
+                            <div class="flex-1 text-right">
+                                <p class="text-xs text-gray-500 mb-1">預估獲利</p>
+                                <p class="font-bold ${isProfit ? 'text-profit' : 'text-loss'}">
+                                    ${isProfit ? '+' : ''}${formatMoney(unrealized)} 
+                                    <span class="text-xs font-normal">(${isProfit ? '+' : ''}${returnRate.toFixed(2)}%)</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `}).join('')}
+                ${holdings.length === 0 ? '<p class="text-center text-sm text-gray-400 py-4 border border-dashed rounded-xl border-gray-300">目前無庫存</p>' : ''}
+            </div>
+
+            <h3 class="font-bold text-gray-700 mb-3 px-1">交易歷史</h3>
+            <div class="space-y-4">
+                ${(() => {
+                    if (txs.length === 0) return '<p class="text-center text-sm text-gray-400 py-4">暫無明細</p>';
+                    
+                    const groups = groupTransactionsByMonth(txs);
+                    return Object.keys(groups).sort().reverse().map(month => {
+                        const groupKey = category + '_' + month;
+                        const isCollapsed = collapsedGroups[groupKey];
+                        const monthLabel = month.replace('-', '年') + '月';
+                        
+                        return `
+                        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                            <button onclick="toggleGroup('${groupKey}')" class="w-full flex justify-between items-center bg-gray-50 px-4 py-3 text-sm font-bold text-gray-700 hover:bg-gray-100 transition-colors">
+                                <span>${monthLabel}</span>
+                                <i data-lucide="${isCollapsed ? 'chevron-down' : 'chevron-up'}" class="w-4 h-4 text-gray-500"></i>
+                            </button>
+                            <div class="${isCollapsed ? 'hidden' : 'space-y-2 p-3 border-t border-gray-100'}">
+                                ${groups[month].map(t => {
+                                    const isBuy = t.type === 'buy';
+                                    return `
+                                    <div class="bg-white p-3 rounded-lg border border-gray-100 flex justify-between items-center">
+                                        <div>
+                                            <div class="flex items-center gap-2">
+                                                <span class="text-xs font-bold px-2 py-0.5 rounded ${isBuy ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">
+                                                    ${isBuy ? '買入' : '賣出'}
+                                                </span>
+                                                <span class="text-sm font-medium text-gray-800">${t.name}</span>
+                                            </div>
+                                            <div class="text-xs text-gray-400 mt-1">
+                                                ${t.date} · 數量: ${t.qty} · 單價: ${t.price} <br> 
+                                                標籤: [${t.user}]
+                                            </div>
+                                        </div>
+                                        <div class="text-right">
+                                            <p class="font-bold text-gray-700">${isBuy ? '-' : '+'}${formatMoney(t.amount)}</p>
+                                            ${!isBuy && t.profit ? `<p class="text-xs ${t.profit>=0 ? 'text-profit':'text-loss'}">${t.profit>=0?'+':''}${formatMoney(t.profit)}</p>` : ''}
+                                        </div>
+                                    </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+                        `;
+                    }).join('');
+                })()}
+            </div>
+        `;
+    }
+
+    // --- 各種操作功能綁定至 window ---
+
+    window.toggleForm = function(show) {
+        isFormOpen = show;
+        renderMainContent();
+    };
+
+    window.addUser = function() {
+        const input = document.getElementById('newUserName');
+        const name = input.value.trim();
+        if (name && !sharedData.users.includes(name)) {
+            sharedData.users.push(name);
+            input.value = '';
+            updateAndSave();
+        }
+    };
+
+    window.deleteUser = function(index) {
+        if (sharedData.users.length > 1) {
+            const userToDelete = sharedData.users[index];
+            sharedData.users.splice(index, 1);
+            if (currentUser === userToDelete) {
+                currentUser = sharedData.users[0];
+                saveLocalData();
+            }
+            updateAndSave();
+        }
+    };
+
+    window.updateHoldingPrice = function(id, newPriceStr) {
+        const price = parseFloat(newPriceStr);
+        const holding = sharedData.holdings.find(h => h.id === id);
+        if (holding) {
+            holding.currentPrice = isNaN(price) ? 0 : price;
+            updateAndSave();
+        }
+    };
+
+    window.submitCashTx = function() {
+        const type = document.querySelector('input[name="cashType"]:checked').value;
+        const date = document.getElementById('cashDate').value;
+        const amount = parseFloat(document.getElementById('cashAmount').value);
+        const note = document.getElementById('cashNote').value.trim() || (type === 'deposit' ? '存入本金' : type === 'withdraw' ? '提領本金' : '股息/利息');
+
+        if (!date || isNaN(amount) || amount <= 0) {
+            showToast('請輸入有效金額與日期');
+            return;
+        }
+
+        if (type === 'deposit') {
+            sharedData.realCapital += amount;
+            sharedData.cashPool += amount;
+        } else if (type === 'withdraw') {
+            sharedData.realCapital -= amount; 
+            sharedData.cashPool -= amount;
+        } else if (type === 'dividend') {
+            sharedData.cashPool += amount;
+            sharedData.realizedProfit += amount;
+        }
+
+        sharedData.transactions.push({
+            id: Date.now().toString(),
+            date, type, category: 'cash', name: note, amount, user: currentUser
+        });
+
+        updateAndSave();
+    };
+
+    window.submitAssetTx = function(category) {
+        const type = document.querySelector('input[name="assetType"]:checked').value;
+        const date = document.getElementById('assetDate').value;
+        const name = document.getElementById('assetName').value.trim();
+        const qty = parseFloat(document.getElementById('assetQty').value);
+        const price = parseFloat(document.getElementById('assetPrice').value);
+        const fee = parseFloat(document.getElementById('assetFee').value) || 0;
+
+        if (!date || !name || isNaN(qty) || qty <= 0 || isNaN(price) || price < 0) {
+            showToast('請填寫完整資訊 (名稱、數量、單價)');
+            return;
+        }
+
+        let holdingIndex = sharedData.holdings.findIndex(h => h.category === category && h.name === name);
+        let txAmount = 0;
+        let realizedProfitForThisTx = 0;
+
+        if (type === 'buy') {
+            txAmount = (qty * price) + fee;
+            sharedData.cashPool -= txAmount;
+
+            if (holdingIndex >= 0) {
+                sharedData.holdings[holdingIndex].quantity += qty;
+                sharedData.holdings[holdingIndex].totalCost += txAmount;
+                sharedData.holdings[holdingIndex].currentPrice = 0;
+            } else {
+                sharedData.holdings.push({
+                    id: Date.now().toString(), category, name, quantity: qty, totalCost: txAmount, currentPrice: 0
+                });
+            }
+        } else if (type === 'sell') {
+            if (holdingIndex < 0 || sharedData.holdings[holdingIndex].quantity < qty) {
+                showToast('賣出數量超過目前庫存！');
+                return;
+            }
+
+            txAmount = (qty * price) - fee;
+            sharedData.cashPool += txAmount;
+
+            const holding = sharedData.holdings[holdingIndex];
+            const avgCost = holding.totalCost / holding.quantity;
+            const costOfSold = avgCost * qty;
+            
+            realizedProfitForThisTx = txAmount - costOfSold;
+            sharedData.realizedProfit += realizedProfitForThisTx;
+
+            holding.quantity -= qty;
+            holding.totalCost -= costOfSold;
+
+            if (holding.quantity <= 0.000001) { 
+                sharedData.holdings.splice(holdingIndex, 1);
+            }
+        }
+
+        sharedData.transactions.push({
+            id: Date.now().toString(),
+            date, type, category, name, qty, price, fee, amount: txAmount, profit: realizedProfitForThisTx, user: currentUser
+        });
+
+        isFormOpen = false;
+        updateAndSave();
+    };
+
+    window.toggleGroup = function(key) {
+        collapsedGroups[key] = !collapsedGroups[key];
+        saveLocalData(); 
+        renderAll(); 
+    };
+
+    // --- 匯出功能 ---
+    window.openExportModal = function() {
+        if (sharedData.transactions.length === 0) {
+            showToast('目前沒有交易資料可匯出');
+            return;
+        }
+        
+        const today = new Date();
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        
+        const formatDate = (date) => {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
         };
-    </script>
+        
+        document.getElementById('exportStartDate').value = formatDate(firstDay);
+        document.getElementById('exportEndDate').value = formatDate(today);
+        
+        document.getElementById('exportModal').classList.remove('hidden');
+    };
+
+    window.closeExportModal = function() {
+        document.getElementById('exportModal').classList.add('hidden');
+    };
+
+    window.confirmExportCSV = function() {
+        const start = document.getElementById('exportStartDate').value;
+        const end = document.getElementById('exportEndDate').value;
+
+        if (!start || !end) {
+            showToast('請選擇起始與結束日期');
+            return;
+        }
+
+        const filteredTxs = sharedData.transactions.filter(t => t.date >= start && t.date <= end);
+
+        if (filteredTxs.length === 0) {
+            showToast('所選區間沒有交易資料，請重新選擇');
+            return;
+        }
+
+        const headers = ['日期', '大類', '操作', '項目/備註', '數量', '單價', '手續費', '總金額(進出)', '實現獲利', '填寫人'];
+        let csvContent = '\uFEFF' + headers.join(',') + '\n'; 
+
+        const rows = filteredTxs.map(t => {
+            const typeStr = { 'buy':'買入', 'sell':'賣出', 'deposit':'存入本金', 'withdraw':'提領本金', 'dividend':'股息/利息' }[t.type] || t.type;
+            return [
+                t.date,
+                t.category === 'cash' ? '現金流水' : t.category,
+                typeStr,
+                `"${t.name}"`, 
+                t.qty || '',
+                t.price || '',
+                t.fee || 0,
+                t.amount,
+                t.profit || 0,
+                t.user
+            ].join(',');
+        });
+
+        csvContent += rows.join('\n');
+        
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `資產交易紀錄_${start}_至_${end}.csv`;
+        link.click();
+        
+        closeExportModal(); 
+    };
+
+    // 執行初始化
+    initFirebase();
+
+</script>
 </body>
 </html>
