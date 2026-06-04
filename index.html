@@ -133,9 +133,14 @@
 <!-- 編輯庫存 Modal -->
 <div id="editHoldingModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[100] flex items-center justify-center p-4">
     <div class="bg-white rounded-xl shadow-lg w-full max-w-sm p-6">
-        <h3 class="font-bold text-gray-800 mb-4 text-lg flex items-center gap-2">
-            <i data-lucide="edit" class="w-5 h-5 text-blue-600"></i> 編輯目前持有
-        </h3>
+        <div class="flex justify-between items-start mb-4">
+            <h3 class="font-bold text-gray-800 text-lg flex items-center gap-2">
+                <i data-lucide="edit" class="w-5 h-5 text-blue-600"></i> 編輯目前持有
+            </h3>
+            <button onclick="deleteHoldingAndTxs()" class="text-red-500 hover:text-red-700 p-1 rounded-md hover:bg-red-50 transition-colors" title="刪除此資產及所有明細">
+                <i data-lucide="trash-2" class="w-5 h-5"></i>
+            </button>
+        </div>
         <input type="hidden" id="editHoldingId">
         <div class="space-y-3">
             <div class="flex gap-2">
@@ -798,6 +803,46 @@
         }
     };
 
+    // 刪除整筆資產與所有相關的交易歷史 (連動復原財務數據)
+    window.deleteHoldingAndTxs = function() {
+        const id = document.getElementById('editHoldingId').value;
+        const holding = sharedData.holdings.find(h => h.id === id);
+        if (!holding) return;
+
+        if (!confirm(`確定要刪除「${holding.name}」包含下方所有明細嗎？\n相關的資金數據（如現金池、已實現獲利）也將被一併復原。此操作無法復原！`)) {
+            return;
+        }
+
+        // 找出所有相關的交易紀錄 ID
+        const relatedTxIds = sharedData.transactions
+            .filter(t => t.category === holding.category && ((holding.code && t.code === holding.code) || (!holding.code && t.name === holding.name)))
+            .map(t => t.id);
+
+        // 逐一復原這些交易對整體財務的影響
+        relatedTxIds.forEach(txId => {
+            const txIndex = sharedData.transactions.findIndex(t => t.id === txId);
+            if (txIndex === -1) return;
+            const tx = sharedData.transactions[txIndex];
+
+            if (tx.type === 'buy') {
+                sharedData.cashPool += tx.amount; // 買入被刪除，退回當初扣除的錢
+            } else if (tx.type === 'sell') {
+                sharedData.cashPool -= tx.amount; // 賣出被刪除，扣回當初入帳的錢
+                sharedData.realizedProfit -= (tx.profit || 0); // 扣回當初記錄的已實現獲利
+            }
+
+            // 從總紀錄清單中移除
+            sharedData.transactions.splice(txIndex, 1);
+        });
+
+        // 移除庫存本身
+        sharedData.holdings = sharedData.holdings.filter(h => h.id !== holding.id);
+
+        closeEditHoldingModal();
+        showToast('資產及相關明細已徹底刪除');
+        updateAndSave();
+    };
+
 
     window.submitCashTx = function() {
         const type = document.querySelector('input[name="cashType"]:checked').value;
@@ -904,7 +949,7 @@
         updateAndSave();
     };
 
-    // 刪除紀錄，並智慧復原該筆紀錄所產生的財務影響
+    // 單筆刪除紀錄，並智慧復原該筆紀錄所產生的財務影響
     window.deleteTx = function(id) {
         if (!confirm('確定要刪除這筆交易紀錄嗎？\n系統會自動扣除或還原當時影響的資金與庫存。')) return;
 
@@ -932,7 +977,7 @@
                 return h.name === tx.name;
             });
             
-            // 【新增防呆】檢查刪除這筆交易後，歷史紀錄中是否還留有該資產的其他交易明細
+            // 【防呆】檢查刪除這筆交易後，歷史紀錄中是否還留有該資產的其他交易明細
             const remainingAssetTxs = sharedData.transactions.filter(t => 
                 t.id !== id && 
                 t.category === tx.category && 
@@ -945,7 +990,7 @@
                     holding.quantity -= tx.qty;
                     holding.totalCost -= tx.amount;
                     
-                    // 【修正優化】放寬浮點數判斷門檻，並結合「若無剩餘交易則強制清除」的邏輯
+                    // 放寬浮點數判斷門檻，並結合「若無剩餘交易則強制清除」的邏輯
                     if (holding.quantity <= 0.0001 || remainingAssetTxs.length === 0) {
                         sharedData.holdings = sharedData.holdings.filter(h => h.id !== holding.id);
                     }
